@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { API_BASE, getInsights } from '../api'
+import { API_BASE, API_ORIGIN, getInsights } from '../api'
 import PageShell from './PageShell'
 
 // Real public listing pages — the same allow-listed hosts the API links to.
@@ -52,7 +52,7 @@ export default function Resources({ route }) {
         <section className="panel">
           <h2 className="panel__title">For developers</h2>
           <ul className="links">
-            <li><a href="/docs" target="_blank" rel="noopener noreferrer">Interactive API docs ↗</a><span>Try /search, /autocomplete, /insights live</span></li>
+            <li><a href={`${API_ORIGIN}/docs`} target="_blank" rel="noopener noreferrer">Interactive API docs ↗</a><span>Try /search, /autocomplete, /insights live</span></li>
             <li><a href={`${API_BASE}/datasets/external-platforms.csv`} download>Download the other-platforms dataset (CSV)</a><span>700 synthetic listings, 33 columns</span></li>
             <li><a href="https://github.com/sawanmani/Commudle-Sense" target="_blank" rel="noopener noreferrer">Source code on GitHub ↗</a><span>FastAPI · PostgreSQL + pgvector · React</span></li>
             <li><a href="#/workflow">How a search works →</a><span>Trace any query stage by stage</span></li>

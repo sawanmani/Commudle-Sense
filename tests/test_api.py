@@ -139,3 +139,21 @@ def test_relaxations_only_remove_filters():
     assert [s[1].location for s in steps] == [None, "delhi"]
     assert steps[1][1].technologies == [] and steps[0][1].technologies == ["react"]
     assert i.location == "delhi", "original intent must not be mutated"
+
+
+def test_cors_origin_regex_allows_vercel_previews_only():
+    """Deployments: CORS_ORIGIN_REGEX admits every Vercel URL of the UI, nothing else."""
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.add_middleware(CORSMiddleware, allow_origins=[], allow_origin_regex=r"https://.*\.vercel\.app",
+                       allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+    app.get("/ping")(lambda: {"ok": True})
+    c = TestClient(app)
+    pre = {"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type"}
+    ok = c.options("/ping", headers={"Origin": "https://commudle-search-git-sankalp.vercel.app", **pre})
+    assert ok.headers.get("access-control-allow-origin") == "https://commudle-search-git-sankalp.vercel.app"
+    for bad in ("https://evil.example", "http://x.vercel.app", "https://vercel.app.evil.example"):
+        assert "access-control-allow-origin" not in c.options("/ping", headers={"Origin": bad, **pre}).headers

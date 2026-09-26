@@ -26,6 +26,10 @@ docker compose up --build       # UI http://localhost:8501 · API docs http://lo
 No API key needed. Without `GROQ_API_KEY` (or when Groq is rate-limited) a deterministic rule-based extractor takes over.
 Add a key to `.env` for LLM extraction. Requires Python 3.11 and Docker.
 
+## Deploy
+
+Neon (database) + Render (API, Docker) + Vercel (React UI) — step by step in [`DEPLOY.md`](DEPLOY.md).
+
 ## Web UI (React + Vite)
 
 ```bash

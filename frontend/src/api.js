@@ -74,3 +74,5 @@ export function traceSearch(query, context, { signal } = {}) {
 }
 
 export const API_BASE = BASE
+/** Where the API's own pages live (/docs): same origin in dev (proxied), the API host in production. */
+export const API_ORIGIN = BASE.startsWith('http') ? BASE.replace(/\/$/, '') : ''

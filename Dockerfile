@@ -19,4 +19,5 @@ COPY scripts ./scripts
 RUN useradd -m appuser && mkdir -p /app/logs && chown -R appuser /app
 USER appuser
 EXPOSE 8000 8501
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Hosts like Render/Railway/Cloud Run tell the app which port to use via $PORT (default 8000 locally).
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WORKERS:-1}"]

@@ -38,6 +38,8 @@ LLM_TIMEOUT_SECONDS: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "6"))
 CORS_ORIGINS: list = [
     o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:8501,http://localhost:3000").split(",") if o.strip()
 ]
+# Optional regex for origins that change per deploy, e.g. Vercel previews: https://.*\.vercel\.app
+CORS_ORIGIN_REGEX: str | None = os.getenv("CORS_ORIGIN_REGEX") or None
 # "<calls>/<window seconds>" per client IP.
 RATE_LIMIT_SEARCH: str = os.getenv("RATE_LIMIT_SEARCH", "30/60")
 RATE_LIMIT_WEB_ENRICH: str = os.getenv("RATE_LIMIT_WEB_ENRICH", "10/60")
