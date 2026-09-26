@@ -255,3 +255,26 @@ def test_no_exact_match_broadens_and_labels_results(client, monkeypatch):
 def test_exact_matches_are_never_labelled_broader(client, monkeypatch):
     j = _search(client, monkeypatch, entity_type="hackathon", location="delhi")
     assert j["results"] and not any("broader" in m for r in j["results"] for m in r["match_reasons"])
+
+
+def test_one_request_uses_one_pooled_connection(client, monkeypatch):
+    """Regression: sessions bound to the lazy engine proxy took a NEW connection per query and held them
+    all, so a 15-query request exhausted the pool (30 s timeout). A broadened search runs several queries."""
+    from app.models import get_engine
+    pool = get_engine().pool
+    before = pool.checkedout()
+    for _ in range(3):
+        j = _search(client, monkeypatch, entity_type="event", technologies=["react"], location="delhi")  # broadens → several queries
+        assert j["results"]
+    assert pool.checkedout() == before, "connections leaked past the request"
+    r = client.get("/insights")  # ~15 queries in one request
+    assert r.status_code == 200 and r.json()["entities"]["event"] > 0
+
+
+def test_type_less_query_returns_interleaved_mix_from_real_db(client):
+    j = client.post("/search", json={"query": "frontend", "limit": 14}).json()
+    types = [r["entity_type"] for r in j["results"]]
+    assert not j["blocked"] and len(types) == 14
+    assert len(set(types[:7])) == 7, "first round should hold one of each type"
+    for r in j["results"]:
+        assert "frontend" in r["tags"]

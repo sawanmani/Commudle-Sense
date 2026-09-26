@@ -14,7 +14,8 @@ import re
 from datetime import date, timedelta
 from typing import List, Optional, Tuple
 
-from app.config import KNOWN_CITIES, KNOWN_CONTENT_TYPES
+from app.config import KNOWN_CITIES, KNOWN_CONTENT_TYPES, KNOWN_TECHNOLOGIES
+from app.fuzzy import CITY_ALIASES, TECH_ALIASES, match_value, scan, tokens_with_bigrams
 from app.schemas import DateRange, EntityType, SearchIntent, SortOrder
 
 # (regex, canonical technology). Multi-word / specific patterns first.
@@ -51,14 +52,7 @@ _TECH_RULES: List[Tuple[str, str]] = [
     (r"graphql", "graphql"),
 ]
 
-_CITY_ALIASES = {
-    "bengaluru": "bangalore", "bengalore": "bangalore", "blr": "bangalore", "बेंगलुरु": "bangalore", "बैंगलोर": "bangalore",
-    "gurugram": "gurgaon", "bombay": "mumbai", "मुंबई": "mumbai", "calcutta": "kolkata", "कोलकाता": "kolkata",
-    "dilli": "delhi", "new delhi": "delhi", "दिल्ली": "delhi", "लखनऊ": "lucknow", "पुणे": "pune",
-    "हैदराबाद": "hyderabad", "चेन्नई": "chennai", "madras": "chennai", "नोएडा": "noida", "जयपुर": "jaipur",
-    "इंदौर": "indore", "अहमदाबाद": "ahmedabad", "चंडीगढ़": "chandigarh", "चंडीगढ": "chandigarh",
-    "online": "remote", "virtual": "remote", "wfh": "remote", "work from home": "remote",
-}
+_CITY_ALIASES = CITY_ALIASES  # shared with validation (app/fuzzy.py)
 
 # Ordered: first match wins.
 _ENTITY_RULES: List[Tuple[str, EntityType]] = [
@@ -103,6 +97,10 @@ def _technologies(text: str) -> List[str]:
             if tech == "react" and "react-native" in found:
                 continue
             found.append(tech)
+    # typo-tolerant pass for what the exact rules missed ("fluter", "kubernets", "machine lerning")
+    for tech in scan(text, KNOWN_TECHNOLOGIES, TECH_ALIASES, min_token_len=5):
+        if tech not in found and not (tech == "react" and "react-native" in found):
+            found.append(tech)
     return found
 
 
@@ -114,7 +112,8 @@ def _location(text: str) -> Optional[str]:
     for city in KNOWN_CITIES:
         if re.search(rf"(?<![\w]){city}(?![\w])", low):
             return city
-    return None
+    hits = scan(text, KNOWN_CITIES, CITY_ALIASES, min_token_len=5)  # "lucknw", "hydrabad", "bengaluruu"
+    return hits[0] if hits else None
 
 
 _SPOKE_RE = re.compile(
@@ -166,13 +165,42 @@ def resolve_dates(text: str, today: date) -> Tuple[Optional[DateRange], SortOrde
     return None, SortOrder.relevance
 
 
+# Typo-tolerant entity words, used only when the exact rules found nothing ("hakathons", "speakrs").
+_ENTITY_WORDS = {
+    "hackathon": EntityType.hackathon, "hackathons": EntityType.hackathon,
+    "event": EntityType.event, "events": EntityType.event, "meetup": EntityType.event, "meetups": EntityType.event,
+    "workshop": EntityType.event, "workshops": EntityType.event, "conference": EntityType.event,
+    "conferences": EntityType.event, "webinar": EntityType.event, "webinars": EntityType.event,
+    "speaker": EntityType.speaker, "speakers": EntityType.speaker, "mentor": EntityType.speaker,
+    "mentors": EntityType.speaker, "developer": EntityType.speaker, "developers": EntityType.speaker,
+    "engineer": EntityType.speaker, "engineers": EntityType.speaker,
+    "community": EntityType.community, "communities": EntityType.community,
+    "job": EntityType.job, "jobs": EntityType.job, "openings": EntityType.job, "hiring": EntityType.job,
+    "internship": EntityType.job, "internships": EntityType.job,
+    "lab": EntityType.lab, "labs": EntityType.lab, "bootcamp": EntityType.lab, "bootcamps": EntityType.lab,
+    "project": EntityType.build, "projects": EntityType.build, "build": EntityType.build, "builds": EntityType.build,
+}
+_CONTENT_WORDS = {"workshop": "workshop", "workshops": "workshop", "meetup": "meetup", "meetups": "meetup",
+                  "conference": "conference", "conferences": "conference", "project": "project", "projects": "project"}
+
+
+def _fuzzy_word(text: str, lexicon: dict):
+    for tok in tokens_with_bigrams(text):
+        if " " in tok or len(tok) < 5:
+            continue
+        hit = match_value(tok, list(lexicon))
+        if hit:
+            return lexicon[hit]
+    return None
+
+
 def rule_based_intent(query: str, today: Optional[date] = None) -> SearchIntent:
     """Best-effort intent for `query`; entity_type is `unknown` when nothing recognisable is found."""
     today = today or date.today()
     text = (query or "")[:500]
-    entity = _find(_ENTITY_RULES, text) or EntityType.unknown
+    entity = _find(_ENTITY_RULES, text) or _fuzzy_word(text, _ENTITY_WORDS) or EntityType.unknown
     date_range, sort = resolve_dates(text, today)
-    content_type = _find(_CONTENT_RULES, text)
+    content_type = _find(_CONTENT_RULES, text) or _fuzzy_word(text, _CONTENT_WORDS)
     location = _location(text)
     spoken = _spoken_in(text) if entity == EntityType.speaker else None
     if spoken and location == spoken:

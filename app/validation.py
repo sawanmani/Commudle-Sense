@@ -12,7 +12,6 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Tuple
 
-from rapidfuzz import fuzz, process as rfprocess
 
 from app.config import (
     KNOWN_TECHNOLOGIES,
@@ -21,6 +20,7 @@ from app.config import (
     KNOWN_ENTITY_TYPES,
     KNOWN_CONTENT_TYPES,
 )
+from app.fuzzy import CITY_ALIASES, TECH_ALIASES, match_value
 from app.schemas import SearchIntent, EntityType
 
 # ── Suspicious pattern groups (~48 patterns) ───────────────────────────────────
@@ -95,30 +95,28 @@ _XSS = [
 
 _ALL_PATTERNS = _PROMPT_INJECTION + _SQL_INJECTION + _ROLE_ESCALATION + _DATA_EXFILTRATION + _XSS
 
+_ALIASES_FOR = {id(KNOWN_TECHNOLOGIES): TECH_ALIASES, id(KNOWN_CITIES): CITY_ALIASES}
+
 _SUSPICIOUS_RE = re.compile("|".join(_ALL_PATTERNS), re.IGNORECASE)
 
 
 def _fuzzy_match_or_none(
     value: Optional[str],
     allowed: List[str],
-    threshold: int = 80,
+    threshold: int = 80,  # kept for backwards compatibility; matching is now edit-distance based
 ) -> Optional[str]:
-    """Fuzzy-match a value to an allow-list. Returns None if suspicious or no match."""
+    """Map a value onto an allow-list, tolerating typos and known aliases. None if suspicious or no match.
+
+    See app/fuzzy.py: exact → alias → typo (length-scaled edit budget, ties rejected). The result is always
+    a member of `allowed`, so this can correct "Bengaluru"/"fluter" but never widen what is searchable.
+    """
     if value is None:
         return None
     value_str = str(value).strip()
-    if not value_str:
-        return None
-    # Suspicious? Drop immediately.
-    if _SUSPICIOUS_RE.search(value_str):
-        return None
-    result = rfprocess.extractOne(
-        value_str.lower(), allowed, scorer=fuzz.WRatio
-    )
-    if result is None:
-        return None
-    match, score, _ = result
-    return match if score >= threshold else None
+    if not value_str or _SUSPICIOUS_RE.search(value_str):
+        return None  # suspicious? drop immediately
+    aliases = _ALIASES_FOR.get(id(allowed), {})
+    return match_value(value_str, allowed, aliases)
 
 
 def redact_suspicious(text: Optional[str], limit: int = 500, placeholder: str = "[content removed by safety filter]") -> str:

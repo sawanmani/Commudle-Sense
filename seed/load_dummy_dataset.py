@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.models import (
-    Base, engine, Community, Event, Speaker, Hackathon, Build, Lab, Job, User,
+    Base, engine, get_engine, Community, Event, Speaker, Hackathon, Build, Lab, Job, User,
 )
 from app.models_extra import SpeakerTalk
 from seed.seed_data import _safe_embed
@@ -52,7 +52,7 @@ def main():
     with open(os.path.join(os.path.dirname(__file__), "dummy_dataset.json"), encoding="utf-8") as f:
         data = json.load(f)
 
-    db = sessionmaker(bind=engine)()
+    db = sessionmaker(bind=get_engine())()  # real engine: one connection per session
     for key, model in TABLES:
         if only is not None and key not in only:
             continue

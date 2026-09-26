@@ -38,9 +38,23 @@ def test_near_me_without_city_asks_question(client):
     assert j["clarifying_question"] and "city" in j["clarifying_question"].lower()
 
 
-def test_ambiguous_query_gets_clarifying_question(client, calls):
+def test_query_without_a_type_searches_every_type_instead_of_asking(client, calls):
     j = _post(client, "flutter").json()
-    assert j["blocked"] and j["clarifying_question"] and "events" in j["clarification_options"] and calls == []
+    assert not j["blocked"] and j["clarifying_question"] is None
+    assert {c.entity_type.value for c in calls} == {"event", "hackathon", "speaker", "community", "job", "lab", "build"}
+    assert all(c.technologies == ["flutter"] for c in calls)
+    assert j["results"] and "events" in j["clarification_options"]
+    assert any(n.startswith("Showing everything about Flutter") for n in j["notes"])
+
+
+def test_all_types_with_a_city_skips_types_without_a_city(client, calls):
+    _post(client, "rust in pune")
+    assert "build" not in {c.entity_type.value for c in calls} and all(c.location == "pune" for c in calls)
+
+
+def test_unrecognisable_query_is_not_blocked_and_touches_nothing(client, calls):
+    j = _post(client, "asdf qwerty").json()
+    assert not j["blocked"] and j["results"] == [] and calls == [] and j["clarification_options"]
 
 
 def test_empty_query_is_not_an_attack(client):

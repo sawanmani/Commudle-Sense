@@ -1,0 +1,378 @@
+/* ── Phase 1: background ─────────────────────────────────────────────────── */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #0a0a0a;
+  isolation: isolate;
+}
+
+/* Soft emerald haze. `filter: blur` diffuses the glow itself (backdrop-filter would only blur what's
+   behind it). Slightly oversized so the blurred edges never show. */
+.hero__glow {
+  position: fixed;
+  inset: -10%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 40%, #10b98155, transparent 60%),
+    radial-gradient(circle at 30% 70%, #10b98118, transparent 45%);
+  filter: blur(80px);
+  animation: glow-breathe 12s ease-in-out infinite alternate;
+}
+
+@keyframes glow-breathe {
+  from { transform: scale(1) translateY(0); opacity: 0.9; }
+  to   { transform: scale(1.06) translateY(-1.5%); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero__glow { animation: none; }
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+.hero__center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22vh 16px 64px;
+  text-align: center;
+}
+
+.hero__title {
+  margin: 0;
+  font-size: clamp(1.9rem, 4.5vw, 3rem);
+  font-weight: 650;
+  letter-spacing: 0; /* Telma's joined letterforms need their natural spacing */
+  line-height: 1.1;
+}
+
+.hero__subtitle {
+  margin: 12px 0 36px;
+  max-width: 34rem;
+  color: var(--muted);
+  font-size: clamp(0.95rem, 1.6vw, 1.05rem);
+  line-height: 1.5;
+}
+
+/* ── Phase 2: pill shell ─────────────────────────────────────────────────── */
+.pill {
+  --pill-h: 64px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(720px, 100%);
+  height: var(--pill-h);
+  padding: 8px 20px 8px 8px;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.disc {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+
+.disc__icon {
+  display: block;
+}
+
+.pill__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.pill__input::placeholder {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+/* the native "x" clear button clashes with the dark pill */
+.pill__input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* keyboard users get a visible focus ring (the input itself has outline:0) */
+.pill:focus-within {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.disc:focus-visible {
+  outline: 2px solid var(--emerald);
+  outline-offset: 3px;
+}
+
+/* ── Phase 3: iridescent ring on hover ───────────────────────────────────── */
+/* Animating the gradient ANGLE (not rotating the element) keeps the ring glued to the pill's
+   outline; a rotated pseudo-element only works for circles. */
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: true;
+}
+
+.pill,
+.disc {
+  --ring: conic-gradient(from var(--angle), #f97316, #a855f7, #3b82f6, #10b981, #f97316);
+  --ring-w: 2px;
+}
+
+/* the crisp ring: a gradient box with its content area masked out → only a ring-w border remains */
+.pill::before,
+.disc::before,
+.pill::after {
+  content: '';
+  position: absolute;
+  inset: calc(-1px - var(--ring-w) + 1px);
+  border-radius: inherit;
+  padding: var(--ring-w);
+  background: var(--ring);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0;
+  transition: opacity 300ms ease;
+  pointer-events: none;
+}
+
+/* soft outer glow: the same ring, thicker and blurred */
+.pill::after {
+  --ring-w: 6px;
+  inset: -6px;
+  filter: blur(12px);
+  z-index: -1;
+}
+
+.pill:hover,
+.pill:focus-within {
+  animation: spin 4s linear infinite;
+}
+
+.pill:hover::before,
+.pill:focus-within::before,
+.pill:hover .disc::before,
+.pill:focus-within .disc::before {
+  opacity: 1;
+}
+
+.pill:hover::after,
+.pill:focus-within::after {
+  opacity: 0.45;
+}
+
+/* the ring replaces the grey border while visible */
+.pill:hover,
+.pill:hover .disc {
+  border-color: transparent;
+}
+
+@keyframes spin {
+  to { --angle: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill:hover,
+  .pill:focus-within { animation: none; }
+}
+
+/* ── Phase 4: "lift and search" + empty-query shake ──────────────────────── */
+.disc__icon {
+  transition: color 200ms ease;
+}
+
+.disc.is-lifting .disc__icon {
+  animation: icon-lift 250ms ease-out;
+}
+
+/* pulse: a burst of the ring colours synced with the lift */
+.disc.is-lifting {
+  animation: disc-pulse 250ms ease-out;
+}
+
+@keyframes icon-lift {
+  0%   { transform: translateY(0) scale(1); }
+  55%  { transform: translateY(-6px) scale(1.15); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes disc-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  40%  { box-shadow: -6px 0 18px 2px rgba(249, 115, 22, 0.55), 6px 0 18px 2px rgba(168, 85, 247, 0.55),
+                     0 -6px 18px 2px rgba(59, 130, 246, 0.5), 0 6px 18px 2px rgba(16, 185, 129, 0.6); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* `translate` (not transform) so it combines with the hover spin without overriding it */
+.pill.is-shaking {
+  animation: pill-shake 200ms ease-in-out;
+}
+
+.pill.is-shaking:hover,
+.pill.is-shaking:focus-within {
+  animation: pill-shake 200ms ease-in-out, spin 4s linear infinite;
+}
+
+@keyframes pill-shake {
+  0%, 100% { translate: 0; }
+  20% { translate: -4px; }
+  40% { translate: 4px; }
+  60% { translate: -4px; }
+  80% { translate: 4px; }
+}
+
+.hero__hint {
+  min-height: 1.25em;
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+  color: #fbbf24;
+}
+
+/* ── Phase 5: loading, suggestions, context, compact layout ──────────────── */
+/* Loading reuses the ring: it stays visible and spins fast on the disc — no separate spinner. */
+.pill.is-loading {
+  animation: spin 1.1s linear infinite;
+}
+
+.pill.is-loading .disc::before {
+  opacity: 1;
+}
+
+.pill.is-loading .disc__icon {
+  opacity: 0.55;
+}
+
+.disc:disabled {
+  cursor: progress;
+}
+
+.hero__center {
+  transition: padding-top 450ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* once there are results, the hero slides up to make room */
+.hero__center.is-compact {
+  padding-top: 6vh;
+  padding-bottom: 8px;
+}
+
+.hero__center.is-compact .hero__subtitle {
+  margin-bottom: 24px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  width: min(720px, 100%);
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  animation: fade-up 220ms ease-out;
+}
+
+.chip {
+  padding: 7px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: border-color 200ms ease, background 200ms ease, transform 200ms ease;
+}
+
+.chip:hover,
+.chip:focus-visible {
+  border-color: rgba(16, 185, 129, 0.6);
+  background: rgba(16, 185, 129, 0.12);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.context {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 14px;
+  margin-top: 16px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.context label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.context select {
+  padding: 4px 26px 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.6) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23aaa' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center;
+  appearance: none;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.context select:focus-visible {
+  outline: 2px solid var(--emerald);
+  outline-offset: 2px;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (max-width: 520px) {
+  .pill { --pill-h: 56px; padding-right: 14px; }
+  .disc { width: 42px; height: 42px; }
+  .pill__input { font-size: 1rem; }
+}
+
+.context {
+  align-items: center;
+}
+
+.context__divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.context__nav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .context__divider { display: none; }
+  .context__nav { width: 100%; }
+}

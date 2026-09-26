@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import KNOWN_TECHNOLOGIES, KNOWN_CITIES, KNOWN_CONTENT_TYPES
 from app.models import (
-    Base, engine,
+    Base, engine, get_engine,
     Community, Event, Speaker, Hackathon, Build, Lab, Job,
 )
 
@@ -26,7 +26,7 @@ fake = Faker("en_IN")
 Faker.seed(42)
 random.seed(42)
 
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+SessionLocal = sessionmaker(bind=get_engine(), autocommit=False, autoflush=False)  # real engine, not the proxy
 
 # ── Safe embedding helper ─────────────────────────────────────────────────────
 _embed_fn = None

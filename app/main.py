@@ -11,6 +11,7 @@ GET  /health: readiness check.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import date
 import time
@@ -18,7 +19,7 @@ import uuid
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -28,12 +29,13 @@ from app import config
 from app.autocomplete import record_successful_query, suggest
 from app.external_catalog import search_external
 from app.external_search import safe_web_search
+from app.insights import compute_insights
 from app.extraction import extract_with_source, llm_available
 from app.fallback_extraction import NEAR_ME_RE
 from app.guard import check_raw_query, normalize_query
 from app.logging_utils import log_blocked_attempt
-from app.models import engine
-from app.permissions import MODEL_MAP
+from app.models import get_engine
+from app.permissions import MODEL_MAP, entity_allowed_for
 from app.query_builder import BlockedQueryError, build_and_run
 from app.query_builder import TIME_BOUND
 from app.ranking import effective_weights, embed_text, embedder_status, rank_results, warm_up
@@ -104,7 +106,9 @@ search_limiter = SlidingWindowLimiter(*parse_limit(config.RATE_LIMIT_SEARCH))
 web_limiter = SlidingWindowLimiter(*parse_limit(config.RATE_LIMIT_WEB_ENRICH))
 
 # ── DB session dependency ──────────────────────────────────────────────────────
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+# Bind to the REAL engine: a session bound to models.engine (a lazy proxy object) checks out a new pool
+# connection for every query and holds them all until close — 15 queries in one request exhausted the pool.
+SessionLocal = sessionmaker(bind=get_engine(), autocommit=False, autoflush=False)
 
 
 def get_db():
@@ -168,6 +172,116 @@ def _reasons(intent: SearchIntent, row: dict) -> List[str]:
     if row.get("similarity") is not None:
         out.append(f"meaning match {row['similarity']:.2f}")
     return out
+
+
+def _rank(rows, query_embedding, intent: SearchIntent, entity: str):
+    """Rank rows of ONE entity type; returns (rows, human-readable formula)."""
+    uses_activity = any(r.get("_activity") is not None for r in rows)
+    time_bound = entity in TIME_BOUND
+    w = dict(w_sem=0.5, w_recency=0.3, w_activity=0.2) if uses_activity else dict(w_sem=0.6, w_recency=0.4, w_activity=0.0)
+    rows = rank_results(rows, query_embedding, sort=intent.sort.value, time_bound=time_bound, **w)
+    ew_sem, ew_rec, ew_act = effective_weights(rows, **w)
+    time_signal = ("nearness to today" if intent.sort.value == "upcoming"
+                   else "timeliness (upcoming first, sooner is better; past events below)" if time_bound else "recency")
+    parts = [f"{v:.2f} x {name}" for v, name in ((ew_sem, "meaning similarity"), (ew_rec, time_signal),
+                                                  (ew_act, "activity (talks given / community size)")) if v > 0]
+    return rows, " + ".join(parts)
+
+
+def _to_item(r: dict, entity: str, intent: SearchIntent, broadened: Optional[str] = None) -> SearchResultItem:
+    """Build a result card from PUBLIC columns only; stored text is untrusted, so it is redacted."""
+    time_bound = entity in TIME_BOUND
+    title = r.get("title") or r.get("name") or f"{entity}#{r.get('id', '?')}"
+    snippet = r.get("description") or r.get("bio") or ""
+    return SearchResultItem(
+        entity_type=entity,
+        id=r.get("id", 0),
+        title=redact_suspicious(str(title), 200),
+        snippet=redact_suspicious(str(snippet), 500),
+        score=r.get("score", 0.0),
+        city=r.get("city"),
+        date=(r.get("_date_value") or None) and str(r["_date_value"])[:10],
+        date_label=("starts" if time_bound else "created") if r.get("_date_value") else None,
+        status=_status(r.get("_date_value")) if time_bound else None,
+        tags=[t.strip() for t in (r.get("tags") or "").split(",") if t.strip()][:6],
+        match_reasons=_reasons(intent, r) + ([f"broader match: {broadened}"] if broadened else []),
+    )
+
+
+ENTITY_WORD = {"event": "events", "speaker": "speakers", "community": "communities", "hackathon": "hackathons",
+               "job": "jobs", "lab": "labs", "build": "projects"}
+EVERYTHING_ORDER = ["event", "hackathon", "speaker", "community", "job", "lab", "build"]
+
+
+def _describe(intent: SearchIntent) -> str:
+    bits = [", ".join(t.title() if len(t) > 3 else t.upper() for t in intent.technologies)]
+    if intent.location:
+        bits.append("in " + ("Online" if intent.location == "remote" else intent.location.title()))
+    if intent.spoken_in:
+        bits.append(f"who spoke in {intent.spoken_in.title()}")
+    return " ".join(b for b in bits if b) or "your search"
+
+
+def _search_everything(db, intent: SearchIntent, ctx, query: str, body: SearchRequest, trace, notes: List[str]) -> SearchResponse:
+    """No type named ("frontend", "rust in pune"): don't ask, search every type the requester may see and
+    interleave the best of each. Same permission-checked builder, ranking and redaction as a normal search."""
+    has_signal = bool(intent.technologies or intent.location or intent.spoken_in or intent.date_range or intent.content_type)
+    if not has_signal:
+        trace.add("5. Choose what to search", "nothing recognised",
+                  note="No technology, city, date or type was recognised, so there is nothing safe to filter on.")
+        notes.append('Nothing recognisable in that search. Try a technology, a city or a type, e.g. "flutter events in Delhi".')
+        return SearchResponse(results=[], blocked=False, interpreted_intent=intent, notes=notes,
+                              clarification_options=list(ENTITY_WORD.values()), trace=trace.result())
+
+    entities = [e for e in EVERYTHING_ORDER if entity_allowed_for(e, ctx.auth_state)]
+    if intent.spoken_in:
+        entities = [e for e in entities if e == "speaker"]  # "spoke in" only makes sense for speakers
+    if intent.location:
+        entities = [e for e in entities if hasattr(MODEL_MAP[e], "city")]  # a project has no city: "in Pune" can't apply
+    trace.add("5. Choose what to search", "all types",
+              note="No type named, so every type you may see is searched: " + ", ".join(ENTITY_WORD[e] for e in entities) + ".")
+    embedding = None
+    try:
+        qe = embed_text(intent.free_text_remainder or query[:300], block=False)
+        embedding = None if all(v == 0.0 for v in qe) else qe
+    except Exception:
+        embedding = None
+
+    per_type, found, formulas = {}, {}, {}
+    for e in entities:
+        ie = intent.model_copy(update={"entity_type": EntityType(e)})
+        emb = embedding if hasattr(MODEL_MAP[e], "embedding") else None
+        rows, _ = build_and_run(db, ie, ctx, emb, limit=10)
+        rows, formulas[e] = _rank(rows, emb, ie, e)
+        per_type[e] = [_to_item(r, e, ie) for r in rows]
+        found[e] = len(rows)
+    trace.add("6. Permission-checked SQL", "ran", per_type_rows=found,
+              note="One parameterized, public-columns-only query per type (same builder as a normal search).")
+
+    # interleave by rank: best of each type first, then second-best of each ... -> variety, not 20 of one type
+    results: List[SearchResultItem] = []
+    depth = max((len(v) for v in per_type.values()), default=0)
+    for i in range(depth):
+        for e in entities:
+            if i < len(per_type.get(e, [])) and len(results) < body.limit:
+                results.append(per_type[e][i])
+    trace.add("7. Rank", "ok", formula="each type ranked on its own signals, then interleaved by rank", per_type=formulas)
+    trace.add("8. Clean stored text", "ok", redacted_results=sum(REDACTED_MARK in (r.title, r.snippet) for r in results))
+
+    seen, external = set(), []
+    for e in entities:
+        for x in search_external(intent.model_copy(update={"entity_type": EntityType(e)}), limit=4):
+            if x["id"] not in seen and x["match_level"] in ("exact", "online"):
+                seen.add(x["id"])
+                external.append(x)
+    external = sorted(external, key=lambda x: x["score"], reverse=True)[:12]
+    trace.add("9. Other platforms", "ok", hits=len(external))
+
+    with_hits = [ENTITY_WORD[e] for e in entities if found.get(e)]
+    notes.append(f"Showing everything about {_describe(intent)}: " +
+                 ("narrow it down below." if with_hits else "nothing matched on Commudle yet."))
+    return SearchResponse(results=results, external_results=external, blocked=False, interpreted_intent=intent,
+                          notes=notes, clarification_options=with_hits, trace=trace.result())
 
 
 class _Trace:
@@ -238,16 +352,9 @@ def search(body: SearchRequest, db: Session = Depends(get_db)):
             question = "Which city should I search near? Set your city or add it to the query (e.g. 'in Lucknow')."
             trace.add("4b. 'Near me'", "needs city")
 
-    # Entity still unknown -> ask, don't guess
+    # No type named -> search every type instead of asking (the user wants results, not a quiz)
     if intent.entity_type == EntityType.unknown:
-        log_blocked_attempt(raw_query=query, reason="could_not_determine_entity_type", auth_state=ctx.auth_state)
-        trace.add("5. Choose what to search", "asking",
-                  note="Could not tell if you want events, speakers, jobs, ... so it asks instead of guessing.")
-        return _blocked(
-            intent, "Could not determine what you are searching for.", trace, blocked=True,
-            question="What are you looking for?" + (f" (about {', '.join(intent.technologies)})" if intent.technologies else ""),
-            options=ENTITY_OPTIONS,
-        )
+        return _search_everything(db, intent, ctx, query, body, trace, notes)
 
     # Lazily compute embedding ONLY if entity has an embedding column
     query_embedding = None
@@ -264,6 +371,8 @@ def search(body: SearchRequest, db: Session = Depends(get_db)):
         sem_note = f"{intent.entity_type.value.title()} records have no meaning vectors, so structured filters + ranking only."
     else:
         sem_note = {"loading": "Embedding model is still loading (first minute after start-up); using filters + ranking meanwhile.",
+                    "not loaded": "Embedding model is still loading (first minute after start-up); using filters + ranking meanwhile.",
+                    "ready": "The query's meaning vector could not be computed this time; using filters + ranking.",
                     "unavailable": "Embedding model not installed; using filters + ranking only.",
                     "disabled": "Semantic search disabled (ENABLE_EMBEDDINGS=false)."}.get(embedder_status(), "Semantic vector unavailable.")
     trace.add("5. Semantic vector", "used" if query_embedding else "skipped", note=sem_note, model_status=embedder_status())
@@ -297,37 +406,12 @@ def search(body: SearchRequest, db: Session = Depends(get_db)):
                 break
 
     # Stage 5 — Ranking
-    uses_activity = any(r.get("_activity") is not None for r in rows)
-    time_bound = intent.entity_type.value in TIME_BOUND
-    w = dict(w_sem=0.5, w_recency=0.3, w_activity=0.2) if uses_activity else dict(w_sem=0.6, w_recency=0.4, w_activity=0.0)
-    rows = rank_results(rows, query_embedding, sort=intent.sort.value, time_bound=time_bound, **w)
-    ew_sem, ew_rec, ew_act = effective_weights(rows, **w)
-    time_signal = ("nearness to today" if intent.sort.value == "upcoming"
-                   else "timeliness (upcoming first, sooner is better; past events below)" if time_bound else "recency")
-    parts = [f"{v:.2f} x {name}" for v, name in ((ew_sem, "meaning similarity"), (ew_rec, time_signal),
-                                                  (ew_act, "activity (talks given / community size)")) if v > 0]
-    trace.add("7. Rank", "ok", sort=intent.sort.value, formula=" + ".join(parts), top_scores=[r.get("score") for r in rows[:5]])
+    rows, formula = _rank(rows, query_embedding, intent, intent.entity_type.value)
+    trace.add("7. Rank", "ok", sort=intent.sort.value, formula=formula, top_scores=[r.get("score") for r in rows[:5]])
 
     # Stored content is untrusted too: redact anything that looks like an injection payload.
-    results, redacted = [], 0
-    for r in rows:
-        title = r.get("title") or r.get("name") or f"{intent.entity_type.value}#{r.get('id', '?')}"
-        snippet = r.get("description") or r.get("bio") or ""
-        item = SearchResultItem(
-            entity_type=intent.entity_type.value,
-            id=r.get("id", 0),
-            title=redact_suspicious(str(title), 200),
-            snippet=redact_suspicious(str(snippet), 500),
-            score=r.get("score", 0.0),
-            city=r.get("city"),
-            date=(r.get("_date_value") or None) and str(r["_date_value"])[:10],
-            date_label=("starts" if time_bound else "created") if r.get("_date_value") else None,
-            status=_status(r.get("_date_value")) if time_bound else None,
-            tags=[t.strip() for t in (r.get("tags") or "").split(",") if t.strip()][:6],
-            match_reasons=_reasons(intent, r) + ([f"broader match: {broadened}"] if broadened else []),
-        )
-        redacted += REDACTED_MARK in (item.title, item.snippet)
-        results.append(item)
+    results = [_to_item(r, intent.entity_type.value, intent, broadened) for r in rows]
+    redacted = sum(REDACTED_MARK in (it.title, it.snippet) for it in results)
     trace.add("8. Clean stored text", "ok", redacted_results=redacted,
               note="Database text is untrusted too: anything that looks like an injection is replaced.")
 
@@ -367,6 +451,27 @@ def web_enrich(q: str = Query("", min_length=1, max_length=200)):
         log_blocked_attempt(raw_query=q, reason="web_enrich_blocked", auth_state="unknown")
         return {"results": [], "blocked": True}
     return {"results": safe_web_search(q), "blocked": False}
+
+
+@app.get("/insights", dependencies=[Depends(rate_limit(web_limiter))])
+def insights(db: Session = Depends(get_db)):
+    """Public aggregate numbers only (counts over public columns + blocked attempts by reason)."""
+    runtime = {
+        "llm_extraction": "available" if llm_available() else "fallback_rules",
+        "semantic_search": embedder_status(),
+        "rate_limit_search": config.RATE_LIMIT_SEARCH,
+    }
+    return compute_insights(db, runtime)
+
+
+EXTERNAL_CSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "seed", "external_platforms_dataset.csv")
+
+
+@app.get("/datasets/external-platforms.csv", dependencies=[Depends(rate_limit(web_limiter))])
+def external_dataset_csv():
+    """The synthetic other-platforms catalog (public by design). The local dataset is NOT downloadable:
+    it deliberately contains fake private fields for leak testing."""
+    return FileResponse(EXTERNAL_CSV, media_type="text/csv", filename="commudle-external-platforms.csv")
 
 
 @app.get("/vocabulary")

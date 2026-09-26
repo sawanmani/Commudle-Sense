@@ -26,6 +26,18 @@ docker compose up --build       # UI http://localhost:8501 · API docs http://lo
 No API key needed. Without `GROQ_API_KEY` (or when Groq is rate-limited) a deterministic rule-based extractor takes over.
 Add a key to `.env` for LLM extraction. Requires Python 3.11 and Docker.
 
+## Web UI (React + Vite)
+
+```bash
+cd frontend && npm install
+API_TARGET=http://127.0.0.1:8000 npm run dev      # → http://127.0.0.1:5180  (proxies /api to the FastAPI server)
+```
+
+Glass search pill with an iridescent ring, typo-tolerant suggestions, an emerald "deep search" Lottie animation while
+results load, results split into **On Commudle** and **Other platforms** with "why shown" badges, plus three pages:
+**Insights** (live public counts), **Workflow** (trace any query stage by stage, including the SQL) and **Resources**.
+Typeface: Telma (Indian Type Foundry, via Fontshare). Details in [`frontend/README.md`](frontend/README.md).
+
 ## What you get
 
 | | |
@@ -38,6 +50,8 @@ Add a key to `.env` for LLM extraction. Requires Python 3.11 and Docker.
 | **Hinglish + Hindi** | LLM path and rule-based path both understand Devanagari and Latin-script Hindi |
 | **Semantic (hybrid) search** | a local multilingual model (`paraphrase-multilingual-MiniLM-L12-v2`) turns the query into a meaning vector; pgvector orders by closeness, combined with the structured filters. Loads in the background at start-up; searches never wait for it |
 | **Ranking** | events and hackathons: **upcoming first, soonest first, past below**; plus meaning similarity and activity (talks given / community size). Signals a result type doesn't have are dropped and the rest re-weighted, so scores use the full 0–1 range |
+| **Typo-tolerant** | "fluter devlopers in lucknw" → Flutter developers in Lucknow; aliases like Bengaluru, k8s, ReactJS. Short words must match exactly, so "june" never becomes Pune |
+| **No type named? No quiz** | "frontend" searches every type and interleaves the best of each, with optional "narrow down" chips |
 | **Never an empty page** | no exact match → the search is re-run with one filter removed ("React events in other cities") and those results are labelled *broader match* |
 | **Why it matched** | each local result carries its date, upcoming/past status, city, tags and the reasons it matched |
 | **Audit log** | every blocked/dropped attempt is written to `logs/blocked_attempts.log` |
