@@ -16,6 +16,16 @@ page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`))
 await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 })
 await page.goto(url, { waitUntil: 'networkidle0' })
 for (const s of steps) {
+  if (s.fail) {
+    // make the first N matching requests fail at the network level, e.g. {"fail": ["/api/search", 2]} (server asleep)
+    const [needle, times] = s.fail
+    let left = times
+    await page.setRequestInterception(true)
+    page.on('request', (req) => {
+      if (req.url().includes(needle) && req.method() !== 'OPTIONS' && left > 0) { left--; req.abort('connectionrefused') }
+      else req.continue()
+    })
+  }
   if (s.slow) {
     // delay matching requests in the browser, e.g. {"slow": ["/api/search", 1500]} to see loading states
     const [needle, ms] = s.slow

@@ -14,7 +14,7 @@ const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.
  * active=true  → fade in (200 ms) and play from the start.
  * active=false → keep playing to the next orbit keyframe, pause there, fade out (200 ms), then onHidden().
  */
-export default function DeepSearchLoader({ active, onHidden }) {
+export default function DeepSearchLoader({ active, onHidden, label }) {
   const containerRef = useRef(null)
   const animRef = useRef(null)
   const stopAt = useRef(null)
@@ -100,7 +100,7 @@ export default function DeepSearchLoader({ active, onHidden }) {
       }}
     >
       <div className="deep-search__canvas" ref={containerRef} />
-      <p className="deep-search__label" role="status">{visible ? 'Searching deeply…' : ''}</p>
+      <p className="deep-search__label" role="status">{visible ? (label ?? 'Searching deeply…') : ''}</p>
     </div>
   )
 }
