@@ -1,0 +1,22 @@
+[
+  {"query": "Flutter developers in Lucknow", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "speaker"},
+  {"query": "blockchain communities", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "community"},
+  {"query": "remote devops jobs", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "job"},
+  {"query": "Android events in Bangalore", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "event"},
+  {"query": "machine learning hackathons in Delhi", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "hackathon"},
+  {"query": "React projects", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "build"},
+  {"query": "Python labs in Mumbai", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "lab"},
+  {"query": "Kubernetes workshops in Pune", "auth_state": "member", "expect_blocked": false, "expect_entity": "event"},
+  {"query": "Lucknow ke aas paas Android developers", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "speaker"},
+  {"query": "speakers who know Rust", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "speaker"},
+  {"query": "upcoming GenAI conferences", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "event"},
+  {"query": "Docker communities in Hyderabad", "auth_state": "member", "expect_blocked": false, "expect_entity": "community"},
+  {"query": "frontend developer in Lucknow", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "speaker"},
+  {"query": "AWS jobs in Noida", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "job"},
+  {"query": "Go meetups in Chennai", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "event"},
+  {"query": "GraphQL speakers in Bangalore", "auth_state": "organiser", "expect_blocked": false, "expect_entity": "speaker"},
+  {"query": "web3 hackathon in Jaipur", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "hackathon"},
+  {"query": "Spring Boot labs", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "lab"},
+  {"query": "Vue.js builds", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "build"},
+  {"query": "koi hackathon ho raha hai AI pe Delhi mein", "auth_state": "logged_out", "expect_blocked": false, "expect_entity": "hackathon"}
+]

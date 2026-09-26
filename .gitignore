@@ -1,0 +1,13 @@
+.env
+*.log
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+.qoder/
+logs/
+node_modules/
+dist/
+.venv/
+venv/
+env
