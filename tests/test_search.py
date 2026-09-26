@@ -1,8 +1,9 @@
 """
-tests/test_search.py — Search pipeline tests.
+tests/test_search.py — Deterministic (offline) search pipeline tests.
 
-- Normal queries: assert correct entity_type extraction + validation.
-- Adversarial queries: assert pattern-flagged or dropped or entity==unknown.
+- Normal queries: rule-based extraction + validation must give the expected entity.
+- Adversarial queries: the API must block every one BEFORE anything reaches the query builder.
+Live-LLM equivalents live in tests/test_live_integration.py (marked integration).
 """
 
 import json
@@ -11,82 +12,45 @@ import os
 import pytest
 
 from app.extraction import extract_intent
-from app.validation import validate_intent, _SUSPICIOUS_RE
+from app.validation import validate_intent
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 
-def _load_json(filename):
-    with open(os.path.join(DATA_DIR, filename), "r", encoding="utf-8") as f:
+def _load(name):
+    with open(os.path.join(DATA_DIR, name), encoding="utf-8") as f:
         return json.load(f)
 
 
-# ── Normal queries ─────────────────────────────────────────────────────────────
-
-class TestNormalQueries:
-    """Test that normal queries extract the correct entity type."""
-
-    @pytest.fixture(scope="class")
-    def normal_cases(self):
-        return _load_json("normal_queries.json")
-
-    def test_normal_count(self, normal_cases):
-        """Must have >= 20 normal test cases."""
-        assert len(normal_cases) >= 20
-
-    @pytest.mark.parametrize(
-        "idx",
-        range(20),
-        ids=[f"normal_{i}" for i in range(20)],
-    )
-    def test_normal_query(self, normal_cases, idx):
-        if idx >= len(normal_cases):
-            pytest.skip("Not enough test cases")
-        case = normal_cases[idx]
-        intent = extract_intent(case["query"])
-        clean, dropped = validate_intent(intent)
-        assert clean.entity_type.value == case["expect_entity"], (
-            f"Query: {case['query']!r} → got {clean.entity_type.value}, "
-            f"expected {case['expect_entity']}"
-        )
+NORMAL = _load("normal_queries.json")
+ADVERSARIAL = _load("adversarial_queries.json")
 
 
-# ── Adversarial queries ────────────────────────────────────────────────────────
+def test_dataset_sizes():
+    assert len(NORMAL) >= 20 and len(ADVERSARIAL) >= 15
 
-class TestAdversarialQueries:
-    """Test that adversarial queries are blocked or neutralized."""
 
-    @pytest.fixture(scope="class")
-    def adversarial_cases(self):
-        return _load_json("adversarial_queries.json")
+@pytest.mark.parametrize("case", NORMAL, ids=[c["query"][:40] for c in NORMAL])
+def test_normal_query_extracts_expected_entity(case):
+    clean, _ = validate_intent(extract_intent(case["query"]))
+    assert clean.entity_type.value == case["expect_entity"]
 
-    def test_adversarial_count(self, adversarial_cases):
-        """Must have >= 15 adversarial test cases (we have 31)."""
-        assert len(adversarial_cases) >= 15
 
-    @pytest.mark.parametrize(
-        "idx",
-        range(31),
-        ids=[f"adversarial_{i}" for i in range(31)],
-    )
-    def test_adversarial_query(self, adversarial_cases, idx):
-        if idx >= len(adversarial_cases):
-            pytest.skip("Not enough test cases")
-        case = adversarial_cases[idx]
-        query = case["query"]
+@pytest.mark.parametrize("case", NORMAL, ids=[c["query"][:40] for c in NORMAL])
+def test_normal_query_through_api_is_not_blocked(client, calls, case):
+    body = {"query": case["query"], "context": {"auth_state": case["auth_state"]}}
+    r = client.post("/search", json=body)
+    assert r.status_code == 200
+    j = r.json()
+    assert j["blocked"] is False
+    assert j["interpreted_intent"]["entity_type"] == case["expect_entity"]
+    assert len(calls) == 1
 
-        pattern_flagged = bool(_SUSPICIOUS_RE.search(query))
 
-        intent = extract_intent(query)
-        clean, dropped = validate_intent(intent)
-
-        if case["expect_blocked"]:
-            assert pattern_flagged or dropped or clean.entity_type.value == "unknown", (
-                f"Adversarial query should be blocked: {query!r} "
-                f"(category={case['category']})"
-            )
-        else:
-            # XSS that should be stripped but still resolve
-            assert clean.entity_type.value != "unknown", (
-                f"Non-blocked adversarial should still resolve: {query!r}"
-            )
+@pytest.mark.parametrize("case", ADVERSARIAL, ids=[c["category"] + ":" + c["query"][:30] for c in ADVERSARIAL])
+def test_adversarial_query_blocked_before_query_builder(client, calls, case):
+    r = client.post("/search", json={"query": case["query"], "context": {"auth_state": case["auth_state"]}})
+    assert r.status_code == 200
+    j = r.json()
+    assert j["blocked"] is True and j["results"] == [] and j["external_results"] == []
+    assert calls == [], "a blocked query must never reach the database layer"

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: commudle_safe_search
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d commudle_safe_search"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/commudle_safe_search
+      LLM_EXTRACTION_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install (without the ~2 GB embedding stack; the app degrades gracefully)
+        run: |
+          grep -v -i sentence-transformers requirements.txt > /tmp/req.txt
+          pip install -r /tmp/req.txt ruff
+      - name: Lint
+        run: ruff check .
+      - name: Tests (no API key needed; includes real-Postgres ground-truth tests; live-LLM tests excluded)
+        run: pytest -q
+      - name: Security regression — every adversarial query must be blocked
+        run: pytest -q tests/test_search.py -k adversarial tests/test_guard.py

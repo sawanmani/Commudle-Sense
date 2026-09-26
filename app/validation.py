@@ -25,7 +25,8 @@ from app.schemas import SearchIntent, EntityType
 
 # ── Suspicious pattern groups (~48 patterns) ───────────────────────────────────
 _PROMPT_INJECTION = [
-    r"ignore\s+(previous|all|above|prior)\s+(instructions?|prompts?|rules?)",
+    r"ignore\s+(all\s+|the\s+|any\s+|your\s+)*(previous\s+|prior\s+|above\s+|earlier\s+)?(instructions?|prompts?|rules?)",
+    r"system\s+prompt",
     r"disregard\s+(all|previous|prior|above)",
     r"system\s*:",
     r"new\s+instructions?\s*:",
@@ -70,9 +71,9 @@ _DATA_EXFILTRATION = [
     r"export\s+(all\s+)?data",
     r"raw\s+sql",
     r"api[_\s]?key",
-    r"secret",
-    r"password",
-    r"token",
+    r"\bsecrets?\s+(key|token|value|password)s?\b",
+    r"\bpasswords?\b",
+    r"\b(auth|access|api|bearer|jwt|session|secret)\s+tokens?\b",
     r"email\s+(list|dump)",
     r"phone\s+(list|dump)",
     r"registrations?\s+(list|dump)",
@@ -120,6 +121,15 @@ def _fuzzy_match_or_none(
     return match if score >= threshold else None
 
 
+def redact_suspicious(text: Optional[str], limit: int = 500, placeholder: str = "[content removed by safety filter]") -> str:
+    """Untrusted stored content (DB rows, external catalog) -> safe display text.
+
+    Text matching any injection/exfiltration pattern is replaced wholesale (fail-closed).
+    """
+    text = (text or "")[:limit]
+    return placeholder if _SUSPICIOUS_RE.search(text) else text
+
+
 def _clean_free_text(text: Optional[str]) -> Optional[str]:
     """Strip control chars; keep word chars, whitespace, Devanagari, basic punctuation. Cap 300."""
     if text is None:
@@ -157,6 +167,12 @@ def validate_intent(intent: SearchIntent) -> Tuple[SearchIntent, List[str]]:
     if intent.location and not matched_loc:
         dropped.append(f"location:{intent.location}")
     intent.location = matched_loc
+
+    # ── spoken_in (same allow-list as location) ────────────────────────────
+    matched_spoken = _fuzzy_match_or_none(intent.spoken_in, KNOWN_CITIES)
+    if intent.spoken_in and not matched_spoken:
+        dropped.append(f"spoken_in:{intent.spoken_in}")
+    intent.spoken_in = matched_spoken
 
     # ── role ───────────────────────────────────────────────────────────────
     matched_role = _fuzzy_match_or_none(intent.role, KNOWN_ROLES)

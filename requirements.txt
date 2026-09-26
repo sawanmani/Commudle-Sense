@@ -6,8 +6,8 @@ groq==0.11.0
 instructor==1.5.2
 pydantic==2.9.2
 rapidfuzz==3.9.7
-sentence-transformers==3.1.1
-duckduckgo-search==6.3.7
+sentence-transformers==6.1.0
+ddgs==9.16.0
 Faker==29.0.0
 streamlit==1.38.0
 pytest==8.3.3

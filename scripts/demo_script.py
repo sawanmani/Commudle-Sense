@@ -17,7 +17,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.extraction import extract_intent
-from app.validation import validate_intent, _SUSPICIOUS_RE
+from app.validation import validate_intent
+from app.guard import check_raw_query
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tests", "data")
 
@@ -67,7 +68,7 @@ def main():
         query = case["query"]
         category = case["category"]
 
-        pattern_flagged = bool(_SUSPICIOUS_RE.search(query))
+        pattern_flagged = bool(check_raw_query(query))
         intent = extract_intent(query)
         clean, dropped = validate_intent(intent)
 

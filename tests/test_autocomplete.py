@@ -41,7 +41,7 @@ class TestSuggest:
         assert len(results) <= 3
 
     def test_city_boost(self):
-        results_no_city = suggest("react events", city=None)
+        suggest("react events", city=None)  # baseline call must not raise
         results_with_city = suggest("react events", city="delhi")
         # With city, Delhi results should appear earlier
         if results_with_city:

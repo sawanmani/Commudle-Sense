@@ -160,3 +160,30 @@ class TestValidateIntent:
         intent = SearchIntent(entity_type=EntityType.unknown)
         clean, dropped = validate_intent(intent)
         assert clean is not None
+
+
+class TestTagRegex:
+    """Technology filters must match whole tags, not substrings ("go" != "django")."""
+
+    def _hit(self, tech, tags):
+        import re
+
+        from app.query_builder import _tag_regex
+        return bool(re.search(_tag_regex(tech), tags, re.I))
+
+    def test_go_does_not_match_django(self):
+        assert not self._hit("go", "django, python")
+        assert self._hit("go", "python, go")
+        assert self._hit("go", "go")
+
+    def test_react_does_not_match_react_native(self):
+        assert not self._hit("react", "react-native, ios")
+        assert self._hit("react", "vue, react")
+
+    def test_multiword_and_equivalents(self):
+        assert self._hit("full stack", "python, fullstack")
+        assert self._hit("fullstack", "full stack")
+        assert self._hit("react-native", "ios, react-native")
+
+    def test_regex_metachars_are_escaped(self):
+        assert not self._hit("c++", "cxx")

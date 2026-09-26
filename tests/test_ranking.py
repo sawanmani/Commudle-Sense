@@ -68,3 +68,31 @@ class TestEmbeddingDim:
 
     def test_dim_is_384(self):
         assert EMBEDDING_DIM == 384
+
+
+class TestTimeliness:
+    def test_every_upcoming_beats_every_past(self):
+        from datetime import date, timedelta
+
+        from app.ranking import timeliness_score
+        t = date(2026, 9, 26)
+        far_future = timeliness_score((t + timedelta(days=365)).isoformat(), t)
+        yesterday = timeliness_score((t - timedelta(days=1)).isoformat(), t)
+        assert far_future > yesterday
+        assert timeliness_score(t.isoformat(), t) > timeliness_score((t + timedelta(days=30)).isoformat(), t)
+
+    def test_semantic_weight_redistributed_when_absent(self):
+        rows = [{"id": 1, "similarity": None, "_date_value": datetime.now().isoformat()}]
+        assert rank_results(rows)[0]["score"] > 0.9  # was capped at 0.4
+
+
+class TestEffectiveWeights:
+    def test_undated_entities_rank_on_activity(self):
+        from app.ranking import effective_weights
+        rows = [{"id": 1, "similarity": None, "_date_value": None, "_activity": 5}]
+        assert effective_weights(rows, 0.5, 0.3, 0.2) == (0.0, 0.0, 1.0)
+
+    def test_all_signals_present_keeps_weights(self):
+        from app.ranking import effective_weights
+        rows = [{"similarity": 0.3, "_date_value": "2026-01-01", "_activity": 3}]
+        assert effective_weights(rows, 0.5, 0.3, 0.2) == (0.5, 0.3, 0.2)

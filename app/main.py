@@ -1,7 +1,8 @@
 """
 app/main.py — FastAPI app + endpoints.
 
-POST /search: full pipeline (extract → validate → embed → query → rank → respond).
+POST /search: guard -> extract -> validate -> embed -> query -> rank -> respond
+              (+ an "other platforms" section from the external catalog).
 GET  /autocomplete: safe pool suggestions.
 GET  /web-enrich: DuckDuckGo enrichment (labeled external/unverified).
 GET  /health: readiness check.
@@ -9,45 +10,98 @@ GET  /health: readiness check.
 
 from __future__ import annotations
 
-from typing import Optional
+import logging
+from contextlib import asynccontextmanager
+from datetime import date
+import time
+import uuid
+from typing import List, Optional
 
-from fastapi import FastAPI, Depends, Query
+from fastapi import Depends, FastAPI, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import DATABASE_URL
+from app import config
+from app.autocomplete import record_successful_query, suggest
+from app.external_catalog import search_external
+from app.external_search import safe_web_search
+from app.extraction import extract_with_source, llm_available
+from app.fallback_extraction import NEAR_ME_RE
+from app.guard import check_raw_query, normalize_query
+from app.logging_utils import log_blocked_attempt
 from app.models import engine
+from app.permissions import MODEL_MAP
+from app.query_builder import BlockedQueryError, build_and_run
+from app.query_builder import TIME_BOUND
+from app.ranking import effective_weights, embed_text, embedder_status, rank_results, warm_up
+from app.ratelimit import SlidingWindowLimiter, parse_limit, rate_limit
 from app.schemas import (
-    RequesterContext,
+    EntityType,
     SearchIntent,
+    SearchRequest,
     SearchResponse,
     SearchResultItem,
-    EntityType,
 )
-from app.extraction import extract_intent
-from app.validation import validate_intent
-from app.query_builder import build_and_run, BlockedQueryError
-from app.ranking import rank_results, embed_text
-from app.autocomplete import suggest, record_successful_query
-from app.external_search import safe_web_search
-from app.logging_utils import log_blocked_attempt
-from app.permissions import MODEL_MAP
+from app.validation import redact_suspicious, validate_intent
+
+REDACTED_MARK = "[content removed by safety filter]"
 
 # ── App ────────────────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Load the embedding model in the background at start-up so no user request waits for it.
+    warm_up()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Commudle Safe Natural-Language Search",
-    version="1.0.0",
-    description="PS-01: Permission-aware NL search with injection defenses.",
+    version="1.3.0",
+    description="PS-01: permission-aware NL search with injection defenses, local + other-platform results.",
 )
 
-# CORS — allow demo/frontend origins
+# CORS — explicit origins only (config.CORS_ORIGINS). No wildcard, no credentials: the API
+# authenticates via the request body's context, not cookies.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=config.CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+
+log = logging.getLogger("commudle.api")
+
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    """Server-generated request id (never trusted from the client), timing and safe default headers."""
+    rid, start = uuid.uuid4().hex[:12], time.perf_counter()
+    request.state.request_id = rid
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    response.headers["X-Process-Time-ms"] = f"{(time.perf_counter() - start) * 1000:.1f}"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.exception_handler(SQLAlchemyError)
+async def database_unavailable(request: Request, exc: SQLAlchemyError):
+    """A DB outage must not leak driver/SQL details: log it, answer with a clean 503."""
+    rid = getattr(request.state, "request_id", "-")
+    log.error("database error [%s]: %s", rid, type(exc).__name__)
+    return JSONResponse(status_code=503, content={"detail": "Search backend temporarily unavailable.", "request_id": rid},
+                        headers={"Retry-After": "5"})
+
+
+search_limiter = SlidingWindowLimiter(*parse_limit(config.RATE_LIMIT_SEARCH))
+web_limiter = SlidingWindowLimiter(*parse_limit(config.RATE_LIMIT_WEB_ENRICH))
 
 # ── DB session dependency ──────────────────────────────────────────────────────
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
@@ -61,128 +115,276 @@ def get_db():
         db.close()
 
 
+ENTITY_OPTIONS: List[str] = ["events", "speakers", "communities", "hackathons", "jobs", "labs", "projects"]
+
+
+def _unanswered(intent: SearchIntent, reason: str, *, blocked: bool, question: Optional[str] = None,
+                options: Optional[List[str]] = None) -> SearchResponse:
+    return SearchResponse(
+        results=[], blocked=blocked, block_reason=reason, interpreted_intent=intent,
+        clarifying_question=question, clarification_options=options or [],
+    )
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
-@app.post("/search", response_model=SearchResponse)
-def search(
-    query: str,
-    ctx: Optional[RequesterContext] = None,
-    db: Session = Depends(get_db),
-):
-    """Full search pipeline: extract → validate → embed → query → rank."""
-    if ctx is None:
-        ctx = RequesterContext()
+def _status(when) -> Optional[str]:
+    try:
+        d = date.fromisoformat(str(when)[:10])
+    except (TypeError, ValueError):
+        return None
+    today = date.today()
+    return "today" if d == today else "upcoming" if d > today else "past"
 
-    # Stage 1 — Extraction
-    intent = extract_intent(query)
+
+def _relaxations(intent: SearchIntent):
+    """Broader versions of the intent to try when the exact one finds nothing (most specific first)."""
+    ent = intent.entity_type.value + ("s" if not intent.entity_type.value.endswith("s") else "")
+    techs = ", ".join(intent.technologies)
+    if intent.date_range:
+        yield "the same search at any date", intent.model_copy(update={"date_range": None})
+    if intent.location:
+        yield f"{techs + ' ' if techs else ''}{ent} in other cities", intent.model_copy(update={"location": None})
+    if intent.spoken_in:
+        yield f"{techs + ' ' if techs else ''}speakers who spoke elsewhere", intent.model_copy(update={"spoken_in": None})
+    if intent.technologies and (intent.location or intent.spoken_in):
+        where = (intent.location or intent.spoken_in).title()
+        yield f"other {ent} in {where}", intent.model_copy(update={"technologies": []})
+
+
+def _reasons(intent: SearchIntent, row: dict) -> List[str]:
+    """Plain-language 'why is this here' built only from the validated intent and public columns."""
+    out = []
+    tags = {t.strip() for t in (row.get("tags") or "").split(",")}
+    hit = [t for t in intent.technologies if t in tags or (t in ("fullstack", "full stack") and tags & {"fullstack", "full stack"})]
+    if hit:
+        out.append("tech: " + ", ".join(hit))
+    if intent.location and row.get("city") == intent.location:
+        out.append(f"in {intent.location.title()}")
+    if intent.spoken_in:
+        out.append(f"has spoken in {intent.spoken_in.title()}")
+    if intent.date_range:
+        out.append("in your date range")
+    if row.get("similarity") is not None:
+        out.append(f"meaning match {row['similarity']:.2f}")
+    return out
+
+
+class _Trace:
+    """Collects the pipeline steps for the demo's "how it worked" view. No-op unless enabled."""
+
+    def __init__(self, enabled: bool):
+        self.enabled, self.steps = enabled, []
+
+    def add(self, stage: str, status: str, **detail) -> None:
+        if self.enabled:
+            self.steps.append({"stage": stage, "status": status, **detail})
+
+    def result(self):
+        return self.steps if self.enabled else None
+
+
+def _blocked(intent, reason, trace, **kw):
+    r = _unanswered(intent, reason, **kw)
+    r.trace = trace.result()
+    return r
+
+
+@app.post("/search", response_model=SearchResponse, dependencies=[Depends(rate_limit(search_limiter))])
+def search(body: SearchRequest, db: Session = Depends(get_db)):
+    """Full search pipeline: guard → extract → validate → embed → query → rank."""
+    ctx = body.context
+    query = normalize_query(body.query)
+    trace = _Trace(config.ENABLE_TRACE and body.debug)
+    trace.add("1. Input", "info", note="Query arrives in the JSON body (never the URL).", raw=body.query[:200],
+              normalized=query, requester={"auth_state": ctx.auth_state, "city": ctx.city})
+
+    # Stage 0 — raw-query guard: nothing suspicious ever reaches the LLM, DB or web.
+    reason = check_raw_query(body.query)
+    if reason == "empty_query":
+        trace.add("2. Safety guard", "stopped", reason="empty query")
+        return _blocked(SearchIntent(), "Please type what you are looking for.", trace, blocked=False,
+                        question="What would you like to find?", options=ENTITY_OPTIONS)
+    if reason:
+        log_blocked_attempt(raw_query=query, reason=reason, auth_state=ctx.auth_state)
+        trace.add("2. Safety guard", "BLOCKED", reason=reason,
+                  note="Matched an injection / exfiltration pattern. Stopped here: no LLM call, no database, no web request.")
+        return _blocked(SearchIntent(), "This request was blocked by the safety filter.", trace, blocked=True)
+    trace.add("2. Safety guard", "passed", note="No injection, SQL or private-data pattern found after Unicode normalisation.")
+
+    # Stage 1 — Extraction (LLM with deterministic fallback)
+    intent, source = extract_with_source(query)
+    trace.add("3. Understand the query", "ok", produced_by=source, raw_intent=intent.model_dump(mode="json"),
+              note="The model only fills a fixed JSON schema. It has no database access.")
 
     # Stage 2 — Validation
     intent, dropped = validate_intent(intent)
-
-    # Log dropped fields
     if dropped:
-        log_blocked_attempt(
-            raw_query=query,
-            reason="fields_dropped",
-            auth_state=ctx.auth_state,
-            dropped_fields=dropped,
-        )
+        log_blocked_attempt(raw_query=query, reason="fields_dropped", auth_state=ctx.auth_state, dropped_fields=dropped)
+    trace.add("4. Validate against allow-lists", "ok" if not dropped else "dropped some fields", dropped=dropped,
+              validated_intent=intent.model_dump(mode="json"),
+              note="Every value must be in a closed vocabulary; anything else is removed, never widened.")
 
-    # Check if entity is unknown after validation (hard block)
+    notes: List[str] = []
+    question: Optional[str] = None
+
+    # "near me" -> the requester's city (context comes from the caller; validated against the allow-list)
+    if NEAR_ME_RE.search(query) and not intent.location:
+        if ctx.city and ctx.city.lower() in config.KNOWN_CITIES:
+            intent.location = ctx.city.lower()
+            notes.append(f"'near me' interpreted as your city: {intent.location.title()}.")
+            trace.add("4b. 'Near me'", "resolved", city=intent.location)
+        else:
+            question = "Which city should I search near? Set your city or add it to the query (e.g. 'in Lucknow')."
+            trace.add("4b. 'Near me'", "needs city")
+
+    # Entity still unknown -> ask, don't guess
     if intent.entity_type == EntityType.unknown:
-        log_blocked_attempt(
-            raw_query=query,
-            reason="could_not_determine_entity_type",
-            auth_state=ctx.auth_state,
-        )
-        return SearchResponse(
-            results=[],
-            blocked=True,
-            block_reason="Could not determine what you are searching for. Please try a more specific query.",
-            interpreted_intent=intent,
+        log_blocked_attempt(raw_query=query, reason="could_not_determine_entity_type", auth_state=ctx.auth_state)
+        trace.add("5. Choose what to search", "asking",
+                  note="Could not tell if you want events, speakers, jobs, ... so it asks instead of guessing.")
+        return _blocked(
+            intent, "Could not determine what you are searching for.", trace, blocked=True,
+            question="What are you looking for?" + (f" (about {', '.join(intent.technologies)})" if intent.technologies else ""),
+            options=ENTITY_OPTIONS,
         )
 
     # Lazily compute embedding ONLY if entity has an embedding column
     query_embedding = None
     model = MODEL_MAP.get(intent.entity_type.value)
-    if model and hasattr(model, "embedding"):
+    if model is not None and hasattr(model, "embedding"):
         try:
-            embed_input = intent.free_text_remainder or query[:300]
-            query_embedding = embed_text(embed_input)
-            # Check if it's all zeros (model unavailable)
-            if all(v == 0.0 for v in query_embedding):
-                query_embedding = None
+            qe = embed_text(intent.free_text_remainder or query[:300], block=False)  # never wait for a loading model
+            query_embedding = None if all(v == 0.0 for v in qe) else qe
         except Exception:
             query_embedding = None
+    if query_embedding:
+        sem_note = "Your words were turned into a 384-number meaning vector (multilingual model); results are ordered by closeness in meaning."
+    elif model is None or not hasattr(model, "embedding"):
+        sem_note = f"{intent.entity_type.value.title()} records have no meaning vectors, so structured filters + ranking only."
+    else:
+        sem_note = {"loading": "Embedding model is still loading (first minute after start-up); using filters + ranking meanwhile.",
+                    "unavailable": "Embedding model not installed; using filters + ranking only.",
+                    "disabled": "Semantic search disabled (ENABLE_EMBEDDINGS=false)."}.get(embedder_status(), "Semantic vector unavailable.")
+    trace.add("5. Semantic vector", "used" if query_embedding else "skipped", note=sem_note, model_status=embedder_status())
+
+    if intent.location and model is not None and not hasattr(model, "city"):
+        notes.append(f"{intent.entity_type.value.title()} entries have no city, so the location filter was not applied.")
 
     # Stage 4 — Query builder
+    sql_trace: dict = {}
     try:
-        rows, data_cols = build_and_run(db, intent, ctx, query_embedding)
+        rows, _data_cols = build_and_run(db, intent, ctx, query_embedding, trace=sql_trace if trace.enabled else None, limit=body.limit)
     except BlockedQueryError as e:
-        log_blocked_attempt(
-            raw_query=query,
-            reason=e.reason,
-            auth_state=ctx.auth_state,
-        )
-        return SearchResponse(
-            results=[],
-            blocked=True,
-            block_reason=str(e.reason),
-            interpreted_intent=intent,
-        )
+        log_blocked_attempt(raw_query=query, reason=e.reason, auth_state=ctx.auth_state)
+        trace.add("6. Database query", "BLOCKED", reason=str(e.reason))
+        return _blocked(intent, str(e.reason), trace, blocked=True)
+    trace.add("6. Permission-checked SQL", "ran", rows_returned=len(rows), **sql_trace,
+              note="Only PUBLIC columns are selected; PRIVATE / ORGANISER_ONLY columns cannot appear. "
+                   "Values are bound parameters, never pasted into the SQL text.")
+
+    # Nothing matched exactly -> broaden step by step (never beyond the validated intent's own values),
+    # and label every broadened result so it can't be mistaken for an exact match.
+    broadened: Optional[str] = None
+    if not rows:
+        for label, relaxed in _relaxations(intent):
+            rows, _ = build_and_run(db, relaxed, ctx, query_embedding, limit=body.limit)
+            if rows:
+                broadened = label
+                notes.append(f"No exact matches, so showing {label}.")
+                trace.add("6b. Broaden", "ok", showing=label, rows_returned=len(rows),
+                          note="Exact filters found nothing; the same query was re-run with one filter removed.")
+                break
 
     # Stage 5 — Ranking
-    rows = rank_results(rows, query_embedding)
+    uses_activity = any(r.get("_activity") is not None for r in rows)
+    time_bound = intent.entity_type.value in TIME_BOUND
+    w = dict(w_sem=0.5, w_recency=0.3, w_activity=0.2) if uses_activity else dict(w_sem=0.6, w_recency=0.4, w_activity=0.0)
+    rows = rank_results(rows, query_embedding, sort=intent.sort.value, time_bound=time_bound, **w)
+    ew_sem, ew_rec, ew_act = effective_weights(rows, **w)
+    time_signal = ("nearness to today" if intent.sort.value == "upcoming"
+                   else "timeliness (upcoming first, sooner is better; past events below)" if time_bound else "recency")
+    parts = [f"{v:.2f} x {name}" for v, name in ((ew_sem, "meaning similarity"), (ew_rec, time_signal),
+                                                  (ew_act, "activity (talks given / community size)")) if v > 0]
+    trace.add("7. Rank", "ok", sort=intent.sort.value, formula=" + ".join(parts), top_scores=[r.get("score") for r in rows[:5]])
 
-    # Map to response items
-    results = []
+    # Stored content is untrusted too: redact anything that looks like an injection payload.
+    results, redacted = [], 0
     for r in rows:
         title = r.get("title") or r.get("name") or f"{intent.entity_type.value}#{r.get('id', '?')}"
         snippet = r.get("description") or r.get("bio") or ""
-        results.append(
-            SearchResultItem(
-                entity_type=intent.entity_type.value,
-                id=r.get("id", 0),
-                title=str(title),
-                snippet=str(snippet)[:500],
-                score=r.get("score", 0.0),
-            )
+        item = SearchResultItem(
+            entity_type=intent.entity_type.value,
+            id=r.get("id", 0),
+            title=redact_suspicious(str(title), 200),
+            snippet=redact_suspicious(str(snippet), 500),
+            score=r.get("score", 0.0),
+            city=r.get("city"),
+            date=(r.get("_date_value") or None) and str(r["_date_value"])[:10],
+            date_label=("starts" if time_bound else "created") if r.get("_date_value") else None,
+            status=_status(r.get("_date_value")) if time_bound else None,
+            tags=[t.strip() for t in (r.get("tags") or "").split(",") if t.strip()][:6],
+            match_reasons=_reasons(intent, r) + ([f"broader match: {broadened}"] if broadened else []),
         )
+        redacted += REDACTED_MARK in (item.title, item.snippet)
+        results.append(item)
+    trace.add("8. Clean stored text", "ok", redacted_results=redacted,
+              note="Database text is untrusted too: anything that looks like an injection is replaced.")
 
     # Record successful query for autocomplete popularity
-    clean_query = " ".join(
-        filter(None, [
-            intent.entity_type.value if intent.entity_type != EntityType.unknown else None,
-            " ".join(intent.technologies),
-            intent.location,
-        ])
-    ).strip()
+    clean_query = " ".join(filter(None, [intent.entity_type.value, " ".join(intent.technologies), intent.location])).strip()
     if clean_query:
         record_successful_query(clean_query)
 
+    # Stage 6 — Other platforms (in-memory allow-listed catalog, sanitized)
+    external = search_external(intent)
+    trace.add("9. Other platforms", "ok", hits=len(external),
+              by_match_level={lvl: sum(1 for x in external if x["match_level"] == lvl)
+                              for lvl in ("exact", "online", "relaxed_city", "relaxed_tech")},
+              note="Same validated filters applied to the external catalog; links must be https on an allow-listed platform host.")
+
     return SearchResponse(
         results=results,
+        external_results=external,
         blocked=False,
         interpreted_intent=intent,
+        clarifying_question=question,
+        notes=notes,
+        trace=trace.result(),
     )
 
 
 @app.get("/autocomplete")
-def autocomplete(
-    q: str = Query("", min_length=0),
-    city: Optional[str] = None,
-):
+def autocomplete(q: str = Query("", max_length=100), city: Optional[str] = Query(None, max_length=50)):
     """Return safe pool suggestions for the given prefix."""
     return {"suggestions": suggest(q, city=city)}
 
 
-@app.get("/web-enrich")
-def web_enrich(q: str = Query("", min_length=1)):
-    """DuckDuckGo web enrichment. Results labeled external/unverified."""
-    return {"results": safe_web_search(q)}
+@app.get("/web-enrich", dependencies=[Depends(rate_limit(web_limiter))])
+def web_enrich(q: str = Query("", min_length=1, max_length=200)):
+    """DuckDuckGo web enrichment. Results labeled external/unverified. Guarded like /search."""
+    if check_raw_query(q):
+        log_blocked_attempt(raw_query=q, reason="web_enrich_blocked", auth_state="unknown")
+        return {"results": [], "blocked": True}
+    return {"results": safe_web_search(q), "blocked": False}
+
+
+@app.get("/vocabulary")
+def vocabulary():
+    """The closed vocabularies the search understands (handy for dropdowns / autocomplete UIs)."""
+    return {"technologies": config.KNOWN_TECHNOLOGIES, "cities": config.KNOWN_CITIES, "roles": config.KNOWN_ROLES,
+            "entity_types": config.KNOWN_ENTITY_TYPES, "content_types": config.KNOWN_CONTENT_TYPES}
+
+
+@app.get("/ready")
+def ready(db: Session = Depends(get_db)):
+    """Readiness: the database answers. (/health only says the process is up.)"""
+    db.execute(text("SELECT 1"))  # a failure becomes the clean 503 above
+    return {"ready": True, "database": "ok"}
 
 
 @app.get("/health")
 def health():
-    """Readiness check."""
-    return {"status": "ok"}
+    """Readiness check (also reports whether the LLM path is currently usable)."""
+    return {"status": "ok", "llm_extraction": "available" if llm_available() else "fallback_rules",
+            "semantic_search": embedder_status()}

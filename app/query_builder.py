@@ -7,12 +7,15 @@ through SQLAlchemy Core expressions. entity_type == "unknown" is hard-blocked.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import select, or_
+from sqlalchemy import case, or_, select
 from sqlalchemy.orm import Session
 
+from app.models import Event
+from app.models_extra import SpeakerTalk
 from app.permissions import get_allowed_columns, entity_allowed_for, MODEL_MAP
 from app.schemas import SearchIntent
 
@@ -25,6 +28,9 @@ class BlockedQueryError(Exception):
         super().__init__(reason)
 
 
+# Entities whose date is when it HAPPENS (rank upcoming first) rather than when it was created.
+TIME_BOUND = {"event", "hackathon"}
+
 # Entity → date column name (others have no public date → neutral recency)
 DATE_COLUMN = {
     "event": "event_date",
@@ -32,6 +38,15 @@ DATE_COLUMN = {
     "community": "created_at",
     "build": "created_at",
 }
+
+
+_TECH_EQUIV = {"fullstack": ("fullstack", "full stack"), "full stack": ("fullstack", "full stack")}
+
+
+def _tag_regex(tech: str) -> str:
+    """POSIX regex matching `tech` as a complete comma-separated tag (allow-listed value, escaped)."""
+    names = "|".join(re.escape(n) for n in _TECH_EQUIV.get(tech, (tech,)))
+    return rf"(^|,\s*)({names})(\s*,|$)"
 
 
 def _parse_iso(value: Optional[str]):
@@ -57,8 +72,13 @@ def build_and_run(
     intent: SearchIntent,
     ctx: Any,
     query_embedding: Optional[List[float]] = None,
+    trace: Optional[Dict[str, Any]] = None,
+    limit: int = 50,
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     """Build and execute the permission-checked, parameterized query.
+
+    If `trace` (a dict) is given it is filled with the generated SQL, its bound parameters and
+    which columns were allowed / hidden — for the demo's "how it worked" panel.
 
     Returns (rows_as_dicts, data_column_names).
     Raises BlockedQueryError if the query must be blocked.
@@ -96,8 +116,19 @@ def build_and_run(
     if intent.location and hasattr(model, "city"):
         stmt = stmt.where(model.city == intent.location)
 
+    # "speakers who have SPOKEN in <city>": sub-select over speaker_talks -> events (bound parameter)
+    if intent.spoken_in and entity == "speaker":
+        spoke_there = (
+            select(SpeakerTalk.speaker_id)
+            .join(Event, Event.id == SpeakerTalk.event_id)
+            .where(Event.city == intent.spoken_in)
+        )
+        stmt = stmt.where(model.id.in_(spoke_there))
+
     if intent.technologies and hasattr(model, "tags"):
-        tag_filters = [model.tags.ilike(f"%{t}%") for t in intent.technologies]
+        # Whole-tag match on the comma-separated `tags` column (bound regex parameter). A substring
+        # ILIKE would make "go" match "django" and "react" match "react-native".
+        tag_filters = [model.tags.op("~*")(_tag_regex(t)) for t in intent.technologies]
         stmt = stmt.where(or_(*tag_filters))
 
     if intent.date_range:
@@ -127,9 +158,25 @@ def build_and_run(
         if date_col_name:
             date_col = getattr(model, date_col_name, None)
             if date_col is not None:
-                stmt = stmt.order_by(date_col.desc().nulls_last())
+                if entity in TIME_BOUND:
+                    # Things you attend: upcoming first (soonest first), then past (most recent first).
+                    today = date.today()
+                    is_past = case((date_col >= today, 0), else_=1)
+                    stmt = stmt.order_by(is_past, case((date_col >= today, date_col)).asc(), date_col.desc().nulls_last())
+                else:
+                    stmt = stmt.order_by(date_col.desc().nulls_last())
 
-    stmt = stmt.limit(50)
+    stmt = stmt.limit(max(1, min(int(limit), 50)))
+
+    if trace is not None:
+        from sqlalchemy.dialects import postgresql
+        compiled = stmt.compile(dialect=postgresql.dialect())
+        trace["sql"] = str(compiled)
+        trace["params"] = {k: (f"<{len(v)}-dim vector>" if isinstance(v, (list, tuple)) and len(v) > 8 else v)
+                           for k, v in compiled.params.items()}
+        trace["allowed_columns"] = data_cols
+        trace["hidden_columns"] = [{"column": c.name, "visibility": c.info.get("visibility", "unspecified")}
+                                   for c in model.__table__.columns if c.info.get("visibility") != "public"]
 
     # ── Execute ────────────────────────────────────────────────────────────
     result = db.execute(stmt)
@@ -153,6 +200,9 @@ def build_and_run(
             row_dict["_date_value"] = row_dict[date_col_name]
         else:
             row_dict["_date_value"] = None
+        # Popularity signal for ranking ("recent activity"): talks given / community size
+        act = row_dict.get("talks_given") if "talks_given" in row_dict else row_dict.get("member_count")
+        row_dict["_activity"] = act
         rows.append(row_dict)
 
     return rows, data_cols
