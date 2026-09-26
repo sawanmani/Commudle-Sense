@@ -143,7 +143,7 @@ COUNTS = {"communities": 75, "events": 225, "speakers": 150, "hackathons": 90, "
 
 def build() -> dict:
     d = {k: [] for k in ["communities", "events", "speakers", "hackathons",
-                         "builds", "labs", "jobs", "users", "speaker_talks"]}
+                         "builds", "labs", "jobs", "users", "speaker_talks", "record_audience"]}
 
     cities = city_cycle()
     for i in range(1, COUNTS["communities"] + 1):
@@ -251,6 +251,19 @@ def build() -> dict:
             chosen[sp["id"]] = sp
         for sid in chosen:
             d["speaker_talks"].append({"speaker_id": sid, "event_id": ev["id"]})
+
+    # Row-level audience (who may LIST a record). Separate RNG: adding this changes no other value.
+    # Most records stay public; some are members-only, a few organisers-only (e.g. planning meetups).
+    arng = random.Random(4242)
+    shares = {"events": ("event", 0.18, 0.07), "communities": ("community", 0.15, 0.04),
+              "hackathons": ("hackathon", 0.12, 0.04), "labs": ("lab", 0.20, 0.05)}
+    for key, (entity, members, organisers) in shares.items():
+        for rec in d[key]:
+            x = arng.random()
+            if x < organisers:
+                d["record_audience"].append({"entity": entity, "record_id": rec["id"], "audience": "organisers"})
+            elif x < organisers + members:
+                d["record_audience"].append({"entity": entity, "record_id": rec["id"], "audience": "members"})
 
     return d
 

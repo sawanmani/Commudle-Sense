@@ -1,4 +1,4 @@
-import { PAGES, href } from '../router'
+import { href } from '../router'
 import './pages.css'
 
 
@@ -10,21 +10,11 @@ export function PageIcon({ d }) {
   )
 }
 
-/** Common frame for the info pages: back link, title, sibling tabs. */
-export default function PageShell({ route, title, lead, children }) {
+/** Common frame for the info pages: back link and title (navigation lives in the top bar). */
+export default function PageShell({ title, lead, children }) {
   return (
     <div className="page">
-      <nav className="page__nav" aria-label="Pages">
-        <a className="back" href={href('/')}>← Back to search</a>
-        <div className="tabs">
-          {PAGES.map((p) => (
-            <a key={p.path} href={href(p.path)} className={`tab${route === p.path ? ' is-active' : ''}`}
-               aria-current={route === p.path ? 'page' : undefined}>
-              <PageIcon d={p.icon} /> {p.label}
-            </a>
-          ))}
-        </div>
-      </nav>
+      <a className="back" href={href('/')}>← Back to search</a>
       <header className="page__head">
         <h1>{title}</h1>
         {lead && <p>{lead}</p>}

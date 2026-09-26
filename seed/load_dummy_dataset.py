@@ -19,13 +19,14 @@ from sqlalchemy.orm import sessionmaker
 from app.models import (
     Base, engine, get_engine, Community, Event, Speaker, Hackathon, Build, Lab, Job, User,
 )
-from app.models_extra import SpeakerTalk
+from app.models_extra import RecordAudience, SpeakerTalk
 from seed.seed_data import _safe_embed
 
 TABLES = [
     ("communities", Community), ("events", Event), ("speakers", Speaker),
     ("hackathons", Hackathon), ("builds", Build), ("labs", Lab),
     ("jobs", Job), ("users", User), ("speaker_talks", SpeakerTalk),
+    ("record_audience", RecordAudience),
 ]
 DATE_COLS = {"event_date", "start_date"}
 DT_COLS = {"created_at"}
@@ -40,11 +41,13 @@ def main():
         Base.metadata.create_all(engine)
         with engine.connect() as c:
             if c.execute(text("SELECT count(*) FROM speakers")).scalar():
-                if c.execute(text("SELECT count(*) FROM speaker_talks")).scalar():
+                # older database: backfill just the newer (additive) tables that are still empty
+                only = {t for t in ("speaker_talks", "record_audience")
+                        if not c.execute(text(f"SELECT count(*) FROM {t}")).scalar()}
+                if not only:
                     print("database already seeded; skipping")
                     return
-                only = {"speaker_talks"}  # older database: backfill just the newer table
-                print("backfilling speaker_talks")
+                print("backfilling", ", ".join(sorted(only)))
     else:
         Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)

@@ -32,7 +32,7 @@ from app.external_search import safe_web_search
 from app.insights import compute_insights
 from app.extraction import extract_with_source, llm_available
 from app.fallback_extraction import NEAR_ME_RE
-from app.guard import check_raw_query, normalize_query
+from app.guard import BLOCK_MESSAGES, check_raw_query, classify_block, normalize_query
 from app.logging_utils import log_blocked_attempt
 from app.models import get_engine
 from app.permissions import MODEL_MAP, entity_allowed_for
@@ -169,6 +169,8 @@ def _reasons(intent: SearchIntent, row: dict) -> List[str]:
         out.append(f"has spoken in {intent.spoken_in.title()}")
     if intent.date_range:
         out.append("in your date range")
+    if row.get("_audience"):
+        out.append("members only" if row["_audience"] == "members" else "organisers only")
     if row.get("similarity") is not None:
         out.append(f"meaning match {row['similarity']:.2f}")
     return out
@@ -201,10 +203,12 @@ def _to_item(r: dict, entity: str, intent: SearchIntent, broadened: Optional[str
         score=r.get("score", 0.0),
         city=r.get("city"),
         date=(r.get("_date_value") or None) and str(r["_date_value"])[:10],
-        date_label=("starts" if time_bound else "created") if r.get("_date_value") else None,
+        date_label=(("starts" if time_bound else "last talk" if entity == "speaker" else "created")
+                    if r.get("_date_value") else None),
         status=_status(r.get("_date_value")) if time_bound else None,
         tags=[t.strip() for t in (r.get("tags") or "").split(",") if t.strip()][:6],
         match_reasons=_reasons(intent, r) + ([f"broader match: {broadened}"] if broadened else []),
+        audience=r.get("_audience"),
     )
 
 
@@ -320,10 +324,13 @@ def search(body: SearchRequest, db: Session = Depends(get_db)):
         return _blocked(SearchIntent(), "Please type what you are looking for.", trace, blocked=False,
                         question="What would you like to find?", options=ENTITY_OPTIONS)
     if reason:
+        category = classify_block(body.query)
         log_blocked_attempt(raw_query=query, reason=reason, auth_state=ctx.auth_state)
-        trace.add("2. Safety guard", "BLOCKED", reason=reason,
+        trace.add("2. Safety guard", "BLOCKED", reason=reason, category=category,
                   note="Matched an injection / exfiltration pattern. Stopped here: no LLM call, no database, no web request.")
-        return _blocked(SearchIntent(), "This request was blocked by the safety filter.", trace, blocked=True)
+        r = _blocked(SearchIntent(), BLOCK_MESSAGES[category], trace, blocked=True)
+        r.block_category = category
+        return r
     trace.add("2. Safety guard", "passed", note="No injection, SQL or private-data pattern found after Unicode normalisation.")
 
     # Stage 1 — Extraction (LLM with deterministic fallback)

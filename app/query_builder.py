@@ -11,9 +11,10 @@ import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import case, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.audience import audience_label, hidden_audiences, restrict
 from app.models import Event
 from app.models_extra import SpeakerTalk
 from app.permissions import get_allowed_columns, entity_allowed_for, MODEL_MAP
@@ -110,7 +111,23 @@ def build_and_run(
     if sim_expr is not None:
         columns.append(sim_expr)
 
-    stmt = select(*columns)
+    # Audience label for the result badge; for speakers also their most recent PAST talk ("recent activity").
+    extras = [audience_label(model, entity)]
+    last_talk = None
+    if entity == "speaker":
+        last_talk = (
+            select(func.max(Event.event_date))
+            .join(SpeakerTalk, SpeakerTalk.event_id == Event.id)
+            .where(SpeakerTalk.speaker_id == model.id, Event.event_date <= date.today())
+            .scalar_subquery()
+            .label("last_talk")
+        )
+        extras.append(last_talk)
+
+    stmt = select(*columns, *extras)
+
+    # ── Row-level audience: records above this role's level never leave the database ──
+    stmt = restrict(stmt, model, entity, auth_state)
 
     # ── Filters (all bound params) ─────────────────────────────────────────
     if intent.location and hasattr(model, "city"):
@@ -165,6 +182,8 @@ def build_and_run(
                     stmt = stmt.order_by(is_past, case((date_col >= today, date_col)).asc(), date_col.desc().nulls_last())
                 else:
                     stmt = stmt.order_by(date_col.desc().nulls_last())
+        elif last_talk is not None:
+            stmt = stmt.order_by(last_talk.desc().nulls_last())  # recently active speakers first
 
     stmt = stmt.limit(max(1, min(int(limit), 50)))
 
@@ -175,6 +194,9 @@ def build_and_run(
         trace["params"] = {k: (f"<{len(v)}-dim vector>" if isinstance(v, (list, tuple)) and len(v) > 8 else v)
                            for k, v in compiled.params.items()}
         trace["allowed_columns"] = data_cols
+        hidden = hidden_audiences(auth_state)
+        trace["audience_rule"] = (f"{auth_state}: records for {' / '.join(hidden)} are excluded inside the query"
+                                  if hidden else f"{auth_state}: may see every audience level")
         trace["hidden_columns"] = [{"column": c.name, "visibility": c.info.get("visibility", "unspecified")}
                                    for c in model.__table__.columns if c.info.get("visibility") != "public"]
 
@@ -182,25 +204,26 @@ def build_and_run(
     result = db.execute(stmt)
     rows = []
     for row in result:
+        m = row._mapping
         row_dict: Dict[str, Any] = {}
-        for i, col_name in enumerate(data_cols):
-            val = row[i]
+        for col_name in data_cols:
+            val = m[col_name]
             # Convert dates/datetimes to string for JSON
             if isinstance(val, (date, datetime)):
                 val = val.isoformat()
             row_dict[col_name] = val
-        # Add similarity if semantic
-        if sim_expr is not None:
-            row_dict["similarity"] = float(row[len(data_cols)]) if row[len(data_cols)] is not None else None
-        else:
-            row_dict["similarity"] = None
-        # Add created_at / date value for recency scoring
+        sim = m.get("similarity") if sim_expr is not None else None
+        row_dict["similarity"] = float(sim) if sim is not None else None
+        row_dict["_audience"] = m.get("audience")
+        # Date used for ranking: when it happens / was created; for speakers, their most recent talk
         date_col_name = DATE_COLUMN.get(entity)
         if date_col_name and date_col_name in row_dict:
             row_dict["_date_value"] = row_dict[date_col_name]
+        elif last_talk is not None and m.get("last_talk") is not None:
+            row_dict["_date_value"] = m["last_talk"].isoformat()
         else:
             row_dict["_date_value"] = None
-        # Popularity signal for ranking ("recent activity"): talks given / community size
+        # Popularity signal for ranking: talks given / community size
         act = row_dict.get("talks_given") if "talks_given" in row_dict else row_dict.get("member_count")
         row_dict["_activity"] = act
         rows.append(row_dict)

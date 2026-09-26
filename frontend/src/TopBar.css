@@ -1,0 +1,106 @@
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 16px 20px;
+}
+
+/* glass only once content scrolls under it */
+.topbar::before {
+  content: '';
+  position: absolute;
+  inset: 0 -100vw;
+  z-index: -1;
+  background: rgba(10, 10, 10, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0;
+  transition: opacity 250ms ease;
+  animation: topbar-glass linear both;
+  animation-timeline: scroll();
+  animation-range: 0 64px;
+}
+
+@keyframes topbar-glass {
+  to { opacity: 1; }
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+/* the logo echoes the search ring: a conic gradient disc with an emerald core */
+.brand__mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, #0a0a0a 0 38%, transparent 40%),
+    conic-gradient(from 200deg, #f97316, #a855f7, #3b82f6, #10b981, #f97316);
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.35);
+}
+
+.brand__name {
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.brand__sub {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #6ee7b7;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.topnav {
+  display: flex;
+  gap: 4px;
+}
+
+.topnav__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  color: rgba(245, 245, 245, 0.7);
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: color 200ms ease, background 200ms ease;
+}
+
+.topnav__link:hover,
+.topnav__link:focus-visible {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.topnav__link.is-active {
+  color: #d1fae5;
+  background: rgba(16, 185, 129, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.45);
+}
+
+@media (max-width: 560px) {
+  .topbar { padding: 12px 16px; }
+  .brand__sub { display: none; }
+  .topnav__link { padding: 8px 10px; }
+  .topnav__link span { display: none; } /* icons only on phones; the link keeps its name via aria-label */
+}

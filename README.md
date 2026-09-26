@@ -36,7 +36,7 @@ API_TARGET=http://127.0.0.1:8000 npm run dev      # → http://127.0.0.1:5180  (
 Glass search pill with an iridescent ring, typo-tolerant suggestions, an emerald "deep search" Lottie animation while
 results load, results split into **On Commudle** and **Other platforms** with "why shown" badges, plus three pages:
 **Insights** (live public counts), **Workflow** (trace any query stage by stage, including the SQL) and **Resources**.
-Typeface: Telma (Indian Type Foundry, via Fontshare). Details in [`frontend/README.md`](frontend/README.md).
+Typeface: Pally (Indian Type Foundry, via Fontshare). Details in [`frontend/README.md`](frontend/README.md).
 
 ## What you get
 

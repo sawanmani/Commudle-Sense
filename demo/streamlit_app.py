@@ -92,12 +92,12 @@ def set_query(text: str) -> None:
 
 
 st.set_page_config(page_title="Commudle Safe Search", page_icon="🔍", layout="wide")
-# Same typeface as the React UI: Telma (Indian Type Foundry, Fontshare). Code blocks stay monospace.
+# Same typeface as the React UI: Pally (Indian Type Foundry, Fontshare). Code blocks stay monospace.
 st.markdown(
     """<style>
-    @import url('https://api.fontshare.com/v2/css?f[]=telma@300,400,500,700,900&display=swap');
+    @import url('https://api.fontshare.com/v2/css?f[]=pally@1&display=swap');
     html, body, [class*="st-"], .stMarkdown, .stButton button, .stTextInput input, .stSelectbox, h1, h2, h3, h4, p, label {
-        font-family: 'Telma', 'Noto Sans Devanagari', 'Nirmala UI', sans-serif !important;
+        font-family: 'Pally', 'Noto Sans Devanagari', 'Nirmala UI', sans-serif !important;
     }
     code, pre, .stCode, .stJson { font-family: ui-monospace, SFMono-Regular, Consolas, monospace !important; }
     </style>""",

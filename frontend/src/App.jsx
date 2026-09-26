@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import SearchHero from './SearchHero'
 import Results from './Results'
 import DeepSearchLoader from './DeepSearchLoader'
-import { search } from './api'
+import { getInsights, search } from './api'
+import TopBar from './TopBar'
 import { useRoute } from './router'
 import Insights from './pages/Insights'
 import Workflow from './pages/Workflow'
@@ -15,10 +16,25 @@ export default function App() {
   const [loaderShown, setLoaderShown] = useState(false) // loader on screen (outlives `loading` briefly)
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
+  const [lastQuery, setLastQuery] = useState('')
   const inflight = useRef(null)
   const route = useRoute()
+  const [stats, setStats] = useState(null)
 
-  async function runSearch(q) {
+  // live numbers for the trust strip (public aggregates; optional: the strip has a static fallback)
+  useEffect(() => {
+    const ctrl = new AbortController()
+    getInsights({ signal: ctrl.signal })
+      .then((d) => setStats({
+        records: Object.values(d.entities).reduce((a, b) => a + b, 0),
+        listings: d.external.total,
+        platforms: d.external.platforms.length,
+      }))
+      .catch(() => {})
+    return () => ctrl.abort()
+  }, [])
+
+  async function runSearch(q, ctx = context) {
     inflight.current?.abort()
     const ctrl = new AbortController()
     inflight.current = ctrl
@@ -26,7 +42,8 @@ export default function App() {
     setLoaderShown(true)
     setError('')
     try {
-      setData(await search(q, context, { signal: ctrl.signal }))
+      setData(await search(q, ctx, { signal: ctrl.signal }))
+      setLastQuery(q)
     } catch (e) {
       if (e.name !== 'AbortError') {
         setError(e.message)
@@ -50,6 +67,7 @@ export default function App() {
     return (
       <main className="hero">
         <div className="hero__glow" aria-hidden="true" />
+        <TopBar route={route} />
         <Page route={route} context={context} />
       </main>
     )
@@ -58,6 +76,7 @@ export default function App() {
   return (
     <main className="hero">
       <div className="hero__glow" aria-hidden="true" />
+      <TopBar route={route} />
       <SearchHero
         query={query}
         onQueryChange={setQuery}
@@ -65,12 +84,16 @@ export default function App() {
         loading={loading}
         compact={Boolean(data || error || loaderShown)}
         context={context}
-        onContextChange={setContext}
+        onContextChange={(next) => {
+          setContext(next)
+          if (lastQuery) runSearch(lastQuery, next) // switching role/city shows the difference immediately
+        }}
+        stats={stats}
       />
       <div className="stage">
         <DeepSearchLoader active={loading} onHidden={() => setLoaderShown(false)} />
         <div className={`stage__results${loaderShown ? ' is-waiting' : ''}`}>
-          <Results data={data} error={error} onRefine={refine} />
+          <Results data={data} error={error} onRefine={refine} query={lastQuery} />
         </div>
       </div>
     </main>

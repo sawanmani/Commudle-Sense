@@ -1,12 +1,12 @@
-/* Telma (Indian Type Foundry, Fontshare) is loaded in index.html via Fontshare's official embed link. */
+/* Pally (Indian Type Foundry, Fontshare) is loaded in index.html via Fontshare's official embed link. */
 
 :root {
   --bg: #0a0a0a;
   --text: #f5f5f5;
   --muted: rgba(245, 245, 245, 0.6);
   --emerald: #10b981;
-  /* Telma has no Devanagari glyphs: Hindi text falls back to Noto Sans Devanagari / the system Hindi font */
-  font-family: 'Telma', 'Noto Sans Devanagari', 'Nirmala UI', ui-sans-serif, system-ui, sans-serif;
+  /* Pally has no Devanagari glyphs: Hindi text falls back to Noto Sans Devanagari / the system Hindi font */
+  font-family: 'Pally', 'Noto Sans Devanagari', 'Nirmala UI', ui-sans-serif, system-ui, sans-serif;
   color: var(--text);
   background: var(--bg);
   color-scheme: dark;

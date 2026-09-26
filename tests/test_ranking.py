@@ -96,3 +96,13 @@ class TestEffectiveWeights:
         from app.ranking import effective_weights
         rows = [{"similarity": 0.3, "_date_value": "2026-01-01", "_activity": 3}]
         assert effective_weights(rows, 0.5, 0.3, 0.2) == (0.5, 0.3, 0.2)
+
+
+class TestRecentActivity:
+    def test_more_recently_active_speaker_ranks_first_when_otherwise_equal(self):
+        from datetime import date, timedelta
+        recent = (date.today() - timedelta(days=10)).isoformat()
+        stale = (date.today() - timedelta(days=300)).isoformat()
+        rows = [{"id": 1, "similarity": None, "_date_value": stale, "_activity": 20},
+                {"id": 2, "similarity": None, "_date_value": recent, "_activity": 20}]
+        assert [r["id"] for r in rank_results(rows, None, w_sem=0.5, w_recency=0.3, w_activity=0.2)] == [2, 1]

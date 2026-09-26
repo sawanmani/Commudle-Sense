@@ -2,7 +2,7 @@
 .page {
   width: min(1040px, 100%);
   margin: 0 auto;
-  padding: 24px 16px 96px;
+  padding: 8px 16px 96px;
   animation: fade-up 280ms ease-out;
 }
 
@@ -71,7 +71,7 @@
 .page__head h1 {
   margin: 0;
   font-size: clamp(1.7rem, 3.6vw, 2.4rem);
-  letter-spacing: 0; /* Telma's joined letterforms need their natural spacing */
+  letter-spacing: -0.03em;
 }
 
 .page__head p {
@@ -154,7 +154,7 @@ section + .grid2 {
 .stat__value {
   font-size: 1.9rem;
   font-weight: 650;
-  letter-spacing: 0; /* Telma's joined letterforms need their natural spacing */
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
 

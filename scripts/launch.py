@@ -1,9 +1,10 @@
 """
 scripts/launch.py — One command to run the whole demo locally.
 
-    python scripts/launch.py            # db (docker) -> seed -> API :8000 -> UI :8501 -> browser
-    python scripts/launch.py --no-db    # use the DATABASE_URL you already have
+    python scripts/launch.py              # db (docker) -> seed -> API :8000 -> React UI :5180 -> browser
+    python scripts/launch.py --no-db      # use the DATABASE_URL you already have
     python scripts/launch.py --no-browser
+    python scripts/launch.py --streamlit  # also start the older Streamlit demo on :8501
 
 Ctrl-C stops everything. The LLM is optional: without GROQ_API_KEY the rule-based extractor
 handles English/Hinglish/Hindi queries.
@@ -21,7 +22,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_PORT = os.getenv("DB_PORT", "5433")  # 5433 so it never collides with a Postgres you already run on 5432
-API_PORT, UI_PORT = os.getenv("API_PORT", "8000"), os.getenv("UI_PORT", "8501")
+API_PORT, UI_PORT = os.getenv("API_PORT", "8000"), os.getenv("UI_PORT", "5180")
+STREAMLIT_PORT = os.getenv("STREAMLIT_PORT", "8501")
+FRONTEND = ROOT / "frontend"
 # More API processes = lower tail latency under concurrent load (p95 609 ms -> 185 ms at 32 clients with 4),
 # but each one holds its own copy of the embedding model (~1.2 GB RAM). 2 is plenty for a demo.
 WORKERS = os.getenv("WORKERS", str(min(2, os.cpu_count() or 1)))
@@ -38,6 +41,18 @@ def wait_for(url: str, seconds: int = 60) -> bool:
         try:
             r = httpx.get(url, timeout=2)
             if r.status_code == 200 and "llm_extraction" in r.text:  # our /health, not some other app's
+                return True
+        except Exception:
+            time.sleep(1)
+    return False
+
+
+def wait_for_page(url: str, seconds: int = 60) -> bool:
+    import httpx
+    end = time.time() + seconds
+    while time.time() < end:
+        try:
+            if httpx.get(url, timeout=2).status_code == 200:
                 return True
         except Exception:
             time.sleep(1)
@@ -76,21 +91,35 @@ def main() -> int:
         api.terminate()
         print("API failed to start.")
         return 1
-    print(f"• UI   -> http://localhost:{UI_PORT}")
-    ui_env = {**env, "API_URL": f"http://127.0.0.1:{API_PORT}"}
-    ui = subprocess.Popen(
-        [sys.executable, "-m", "streamlit", "run", "demo/streamlit_app.py", "--server.port", UI_PORT,
-         "--server.headless", "true", "--browser.gatherUsageStats", "false"], cwd=ROOT, env=ui_env)
-    time.sleep(3)
-    if "--no-browser" not in sys.argv:
-        webbrowser.open(f"http://localhost:{UI_PORT}")
+    procs = [api]
+    npm = shutil.which("npm")
+    if not npm:
+        print("npm not found — install Node.js 20+ for the React UI. The API is still running.")
+    else:
+        if not (FRONTEND / "node_modules").exists():
+            print("• installing UI dependencies (first run) ...")
+            if subprocess.run([npm, "install", "--no-audit", "--no-fund"], cwd=FRONTEND).returncode != 0:
+                return 1
+        # 127.0.0.1, not "localhost": on Windows "localhost" can resolve to another app on ::1 (e.g. a Docker dashboard)
+        print(f"• UI   -> http://127.0.0.1:{UI_PORT}")
+        ui_env = {**env, "API_TARGET": f"http://127.0.0.1:{API_PORT}"}
+        procs.append(subprocess.Popen([npm, "run", "dev", "--", "--host", "127.0.0.1", "--port", UI_PORT, "--strictPort"],
+                                      cwd=FRONTEND, env=ui_env))
+    if "--streamlit" in sys.argv:
+        print(f"• Streamlit demo -> http://127.0.0.1:{STREAMLIT_PORT}")
+        procs.append(subprocess.Popen(
+            [sys.executable, "-m", "streamlit", "run", "demo/streamlit_app.py", "--server.port", STREAMLIT_PORT,
+             "--server.headless", "true", "--browser.gatherUsageStats", "false"],
+            cwd=ROOT, env={**env, "API_URL": f"http://127.0.0.1:{API_PORT}"}))
+    if npm and wait_for_page(f"http://127.0.0.1:{UI_PORT}/") and "--no-browser" not in sys.argv:
+        webbrowser.open(f"http://127.0.0.1:{UI_PORT}")
     print("\nReady. Press Ctrl-C to stop.\n")
     try:
         api.wait()
     except KeyboardInterrupt:
         pass
     finally:
-        for p in (ui, api):
+        for p in reversed(procs):
             p.terminate()
     return 0
 

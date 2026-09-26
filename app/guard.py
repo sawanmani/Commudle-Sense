@@ -13,6 +13,7 @@ import re
 import unicodedata
 from typing import Optional
 
+from app import validation as _v
 from app.validation import _SUSPICIOUS_RE
 
 MAX_QUERY_LEN = 500
@@ -55,3 +56,47 @@ def check_raw_query(raw: str) -> Optional[str]:
     if _SUSPICIOUS_RE.search(text) or _EXTRA.search(text):
         return "suspicious_pattern_in_query"
     return None
+
+
+# ── Naming what was blocked (for the user-facing message; the block decision above is unchanged) ──
+_STACKED_SQL = [r";\s*(drop|delete|select|insert|update|truncate)\b", r"%'\s*or\s*'", r"/\*.*\*/"]
+_PRIVATE_EXTRA = [
+    r"\b(e-?mails?|phones?|mobile|whatsapp|contact)\s*(numbers?|ids?|addresses|address|list|column|dump)",
+    r"\b(show|give|list|dump|reveal|print|get|dikha\w*|bata\w*)\b.{0,40}\b(e-?mails?|phones?|mobile|whatsapp|passwords?)\b",
+    r"\b(return|select|include)\b.{0,40}\b(e-?mail|phone|password)\s+column",
+    r"\b(attendance|rsvps?|applicants?|registrations?|judging|analytics|drafts?)\b.{0,30}\b(list|log|show|dump|reveal|notes?|content|data)\b",
+    r"\b(list|log|show|dump|reveal|give|export)\b.{0,30}\b(attendance|rsvps?|applicants?|judging|analytics)\b",
+    r"organi[sz]er\s+(analytics|only)", r"(फोन|फ़ोन|मोबाइल)\s*(नंबर|नम्बर)", r"ई-?मेल|पासवर्ड|निजी\s*(डेटा|जानकारी)",
+]
+
+
+def _rx(patterns):
+    return re.compile("|".join(patterns), re.IGNORECASE | re.DOTALL)
+
+
+# first match wins: an injection that ALSO asks for emails is reported as the injection
+_CATEGORIES = [
+    ("prompt_injection", _rx(_v._PROMPT_INJECTION)),
+    ("role_escalation", _rx(_v._ROLE_ESCALATION)),
+    ("sql_injection", _rx(_v._SQL_INJECTION + _STACKED_SQL)),
+    ("xss", _rx(_v._XSS)),
+    ("private_data", _rx(_v._DATA_EXFILTRATION + _PRIVATE_EXTRA)),
+]
+
+BLOCK_MESSAGES = {
+    "prompt_injection": "It tried to give the AI new instructions. Search text is only ever treated as a search.",
+    "role_escalation": "It tried to claim a higher role from inside the search text. Your role comes from your session, not from what you type.",
+    "sql_injection": "It contains database commands (SQL). Queries are built by the system with bound parameters — never from your text.",
+    "xss": "It contains script or HTML that could run in a browser.",
+    "private_data": "It asks for private data. Emails, phone numbers, RSVPs, attendance, form responses, drafts and organiser notes are never searchable.",
+    "suspicious": "It matched a safety rule.",
+}
+
+
+def classify_block(raw: str) -> str:
+    """Which rule family a blocked query matched (only meaningful when check_raw_query blocked it)."""
+    text = normalize_query(raw)
+    for name, rx in _CATEGORIES:
+        if rx.search(text):
+            return name
+    return "suspicious"

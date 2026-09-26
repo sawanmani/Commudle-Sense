@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { traceSearch } from '../api'
 import PageShell from './PageShell'
+import { hashParam } from '../router'
 
 // The pipeline, in order. `key` is the stage number the API's trace uses.
 const STAGES = [
@@ -53,6 +54,12 @@ export default function Workflow({ route, context }) {
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const inflight = useRef(null)
+  const deepLink = useRef(hashParam('q'))
+
+  // "See where it stopped →" links here with ?q=… — trace it straight away
+  useEffect(() => {
+    if (deepLink.current) run(deepLink.current)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run(text) {
     const query = (text ?? q).trim()

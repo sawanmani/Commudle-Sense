@@ -10177,5 +10177,567 @@
    "speaker_id": 90,
    "event_id": 225
   }
+ ],
+ "record_audience": [
+  {
+   "entity": "event",
+   "record_id": 3,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 6,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 9,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 12,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 13,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 14,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 16,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 17,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 20,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 25,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 31,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 38,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 48,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 49,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 53,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 54,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 57,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 61,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 62,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 63,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 71,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 73,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 80,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 83,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 89,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 92,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 94,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 98,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 104,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 106,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 110,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 111,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 112,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 114,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 118,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 120,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 126,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 127,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 128,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 132,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 140,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 143,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 146,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 147,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 148,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 151,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 152,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 158,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 162,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 163,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 168,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 169,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 170,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 171,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 172,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 174,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 179,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 184,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 188,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 189,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 190,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 196,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 198,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 210,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 212,
+   "audience": "members"
+  },
+  {
+   "entity": "event",
+   "record_id": 218,
+   "audience": "organisers"
+  },
+  {
+   "entity": "event",
+   "record_id": 222,
+   "audience": "members"
+  },
+  {
+   "entity": "community",
+   "record_id": 1,
+   "audience": "members"
+  },
+  {
+   "entity": "community",
+   "record_id": 3,
+   "audience": "members"
+  },
+  {
+   "entity": "community",
+   "record_id": 7,
+   "audience": "members"
+  },
+  {
+   "entity": "community",
+   "record_id": 10,
+   "audience": "members"
+  },
+  {
+   "entity": "community",
+   "record_id": 22,
+   "audience": "members"
+  },
+  {
+   "entity": "community",
+   "record_id": 26,
+   "audience": "members"
+  },
+  {
+   "entity": "community",
+   "record_id": 31,
+   "audience": "members"
+  },
+  {
+   "entity": "community",
+   "record_id": 42,
+   "audience": "organisers"
+  },
+  {
+   "entity": "community",
+   "record_id": 46,
+   "audience": "organisers"
+  },
+  {
+   "entity": "community",
+   "record_id": 55,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 5,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 6,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 14,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 16,
+   "audience": "organisers"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 30,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 32,
+   "audience": "organisers"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 34,
+   "audience": "organisers"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 42,
+   "audience": "organisers"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 47,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 50,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 52,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 57,
+   "audience": "organisers"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 62,
+   "audience": "organisers"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 69,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 71,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 72,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 74,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 78,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 80,
+   "audience": "members"
+  },
+  {
+   "entity": "hackathon",
+   "record_id": 84,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 2,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 12,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 13,
+   "audience": "organisers"
+  },
+  {
+   "entity": "lab",
+   "record_id": 17,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 19,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 21,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 26,
+   "audience": "organisers"
+  },
+  {
+   "entity": "lab",
+   "record_id": 30,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 37,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 40,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 41,
+   "audience": "organisers"
+  },
+  {
+   "entity": "lab",
+   "record_id": 43,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 46,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 55,
+   "audience": "members"
+  },
+  {
+   "entity": "lab",
+   "record_id": 60,
+   "audience": "organisers"
+  }
  ]
 }

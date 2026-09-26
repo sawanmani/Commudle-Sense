@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 export const ROUTES = ['/', '/insights', '/workflow', '/resources']
 
 const current = () => {
-  const path = window.location.hash.replace(/^#/, '') || '/'
+  const path = window.location.hash.replace(/^#/, '').split('?')[0] || '/'
   return ROUTES.includes(path) ? path : '/'
 }
 
@@ -29,3 +29,9 @@ export const PAGES = [
   { path: '/workflow', label: 'Workflow', icon: 'M5 6h5v5H5zM14 13h5v5h-5zM10 8.5h4a2 2 0 012 2V13' },
   { path: '/resources', label: 'Resources', icon: 'M4 5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2zM14 3v5h5M8 13h8M8 17h5' },
 ]
+
+/** Query-string value from the hash route, e.g. #/workflow?q=… */
+export function hashParam(name) {
+  const qs = window.location.hash.split('?')[1] || ''
+  return new URLSearchParams(qs).get(name)
+}

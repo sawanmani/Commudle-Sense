@@ -35,7 +35,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 22vh 16px 64px;
+  padding: 9vh 16px 64px;
   text-align: center;
 }
 
@@ -43,12 +43,13 @@
   margin: 0;
   font-size: clamp(1.9rem, 4.5vw, 3rem);
   font-weight: 650;
-  letter-spacing: 0; /* Telma's joined letterforms need their natural spacing */
+  letter-spacing: -0.03em;
   line-height: 1.1;
 }
 
 .hero__subtitle {
-  margin: 12px 0 36px;
+  text-wrap: balance; /* no lonely last word */
+  margin: 14px 0 34px;
   max-width: 34rem;
   color: var(--muted);
   font-size: clamp(0.95rem, 1.6vw, 1.05rem);
@@ -359,20 +360,332 @@
   align-items: center;
 }
 
-.context__divider {
-  width: 1px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.14);
+
+/* ── Design pass: identity, guidance, depth ─────────────────────────────── */
+/* depth: faint dot grid + a second, cooler glow that picks up the ring's blue/violet */
+.hero::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 30%, #000 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 55% at 50% 30%, #000 30%, transparent 75%);
 }
 
-.context__nav {
+.hero::after {
+  content: '';
+  position: fixed;
+  top: -20vh;
+  right: -10vw;
+  z-index: -1;
+  width: 55vw;
+  height: 55vh;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.12), rgba(168, 85, 247, 0.06) 45%, transparent 70%);
+  filter: blur(60px);
+}
+
+.eyebrow {
   display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 6px 14px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.08);
+  color: #a7f3d0;
+  font-size: 0.85rem;
+  animation: fade-up 400ms ease-out both;
+}
+
+.eyebrow__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34d399;
+  animation: ping 2.4s ease-out infinite;
+}
+
+@keyframes ping {
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+  70%, 100% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+}
+
+.hero__title {
+  animation: fade-up 450ms 60ms ease-out both;
+}
+
+.hero__accent {
+  background: linear-gradient(100deg, #6ee7b7 0%, #34d399 35%, #5eead4 70%, #a7f3d0 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero__subtitle {
+  animation: fade-up 450ms 120ms ease-out both;
+}
+
+.pill {
+  animation: fade-up 450ms 180ms ease-out both;
+}
+
+/* the rotating example sits exactly where the placeholder would */
+.pill__field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.pill__example {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  translate: 0 -50%; /* separate from the animated transform */
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 1.05rem;
+  pointer-events: none;
+  animation: example-in 3200ms ease-in-out both;
+}
+
+@keyframes example-in {
+  0% { opacity: 0; transform: translateY(6px); }
+  12%, 85% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.kbd {
+  flex: none;
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom-width: 2px;
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.55);
+  font: 600 0.8rem/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.kbd--enter {
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #6ee7b7;
+}
+
+.context {
+  animation: fade-up 450ms 240ms ease-out both;
+}
+
+/* ── "Try asking" ── */
+.examples {
+  width: min(880px, 100%);
+  margin-top: 44px;
+  animation: fade-up 500ms 300ms ease-out both;
+}
+
+.examples__title {
+  margin: 0 0 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 245, 0.45);
+}
+
+.examples__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.example {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 14px 40px 14px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  background: rgba(20, 20, 20, 0.5);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 220ms ease, background 220ms ease, transform 220ms ease, box-shadow 220ms ease;
+}
+
+.example:hover,
+.example:focus-visible {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.07);
+  box-shadow: 0 10px 30px -12px rgba(16, 185, 129, 0.35);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.example__icon {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+}
+
+.example__text {
+  font-size: 0.95rem;
+  line-height: 1.35;
+  color: rgba(245, 245, 245, 0.92);
+}
+
+.example__tag {
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(245, 245, 245, 0.55);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.example__go {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  translate: 0 -50%;
+  color: #6ee7b7;
+  opacity: 0;
+  transition: opacity 220ms ease, translate 220ms ease;
+}
+
+.example:hover .example__go,
+.example:focus-visible .example__go {
+  opacity: 1;
+  translate: 3px -50%;
+}
+
+/* ── trust strip ── */
+.trust {
+  display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 6px;
+  gap: 8px 28px;
+  margin: 40px 0 0;
+  padding: 0;
+  list-style: none;
+  color: rgba(245, 245, 245, 0.5);
+  font-size: 0.85rem;
+  animation: fade-up 500ms 380ms ease-out both;
 }
 
-@media (max-width: 640px) {
-  .context__divider { display: none; }
-  .context__nav { width: 100%; }
+.trust li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trust .icon {
+  color: #34d399;
+}
+
+/* compact (results showing): a smaller title, everything else gets out of the way */
+.hero__center.is-compact .hero__title {
+  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  margin-bottom: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eyebrow, .eyebrow__dot, .hero__title, .hero__subtitle, .pill, .context, .examples, .trust, .pill__example {
+    animation: none;
+  }
+}
+
+.role-hint {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: rgba(245, 245, 245, 0.45);
+  text-wrap: balance;
+}
+
+/* ── attack demo ── */
+.attacks {
+  width: min(880px, 100%);
+  margin-top: 32px;
+  animation: fade-up 500ms 340ms ease-out both;
+}
+
+.attacks__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attack {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 7px 14px 7px 8px;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.06);
+  color: rgba(254, 202, 202, 0.9);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 200ms ease, background 200ms ease, transform 200ms ease;
+}
+
+.attack:hover,
+.attack:focus-visible {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.12);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.attack__kind {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.attack__q {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 34ch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attacks { animation: none; }
 }

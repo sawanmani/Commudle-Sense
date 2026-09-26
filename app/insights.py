@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.external_catalog import _load as load_external_catalog
+from app.audience import restrict
 from app.permissions import MODEL_MAP
 
 _CACHE_TTL = 60.0
@@ -29,17 +30,23 @@ _lock = threading.Lock()
 
 
 def _entity_counts(db: Session) -> Dict[str, int]:
-    return {name: db.execute(select(func.count()).select_from(model)).scalar_one() for name, model in MODEL_MAP.items()}
+    return {name: db.execute(restrict(select(func.count()).select_from(model), model, name, "logged_out")).scalar_one()
+            for name, model in MODEL_MAP.items()}
+
+
+def _n(db: Session, model, entity: str, *where) -> int:
+    """COUNT of PUBLIC records (what a logged-out visitor may list)."""
+    return db.execute(restrict(select(func.count()).select_from(model).where(*where), model, entity, "logged_out")).scalar_one()
 
 
 def _upcoming(db: Session, today: date) -> Dict[str, int]:
     ev, hk = MODEL_MAP["event"], MODEL_MAP["hackathon"]
     soon = today + timedelta(days=30)
     return {
-        "events_next_30_days": db.execute(select(func.count()).where(ev.event_date >= today, ev.event_date <= soon)).scalar_one(),
-        "hackathons_next_30_days": db.execute(select(func.count()).where(hk.start_date >= today, hk.start_date <= soon)).scalar_one(),
-        "upcoming_events": db.execute(select(func.count()).where(ev.event_date >= today)).scalar_one(),
-        "upcoming_hackathons": db.execute(select(func.count()).where(hk.start_date >= today)).scalar_one(),
+        "events_next_30_days": _n(db, ev, "event", ev.event_date >= today, ev.event_date <= soon),
+        "hackathons_next_30_days": _n(db, hk, "hackathon", hk.start_date >= today, hk.start_date <= soon),
+        "upcoming_events": _n(db, ev, "event", ev.event_date >= today),
+        "upcoming_hackathons": _n(db, hk, "hackathon", hk.start_date >= today),
     }
 
 
@@ -47,8 +54,9 @@ def _upcoming_by_city(db: Session, today: date):
     """Where is something happening soon: upcoming events + hackathons per city (public columns only)."""
     ev, hk = MODEL_MAP["event"], MODEL_MAP["hackathon"]
     counts = Counter()
-    for model, col in ((ev, ev.event_date), (hk, hk.start_date)):
-        for city, n in db.execute(select(model.city, func.count()).where(col >= today).group_by(model.city)):
+    for name, model, col in (("event", ev, ev.event_date), ("hackathon", hk, hk.start_date)):
+        stmt = restrict(select(model.city, func.count()).where(col >= today), model, name, "logged_out").group_by(model.city)
+        for city, n in db.execute(stmt):
             counts[city] += n
     return [{"name": k, "count": v} for k, v in counts.most_common()]
 
@@ -57,7 +65,7 @@ def _technologies_and_cities(db: Session) -> Dict[str, Any]:
     tech, cities = Counter(), Counter()
     for name, model in MODEL_MAP.items():
         cols = [c for c in ("tags", "city") if hasattr(model, c)]
-        for row in db.execute(select(*[getattr(model, c) for c in cols])):
+        for row in db.execute(restrict(select(*[getattr(model, c) for c in cols]), model, name, "logged_out")):
             values = dict(zip(cols, row))
             for t in (values.get("tags") or "").split(","):
                 if t.strip():

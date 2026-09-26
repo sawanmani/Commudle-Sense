@@ -76,6 +76,7 @@ class SearchResultItem(BaseModel):
     status: Optional[str] = None  # upcoming | today | past (events, hackathons)
     tags: List[str] = []
     match_reasons: List[str] = []
+    audience: Optional[str] = None  # None = public; "members" / "organisers" = restricted listing the requester may see
 
 
 class ExternalResultItem(BaseModel):
@@ -100,6 +101,7 @@ class SearchResponse(BaseModel):
     external_results: List[ExternalResultItem] = []  # other platforms
     blocked: bool = False
     block_reason: Optional[str] = None
+    block_category: Optional[str] = None  # prompt_injection | role_escalation | sql_injection | xss | private_data
     interpreted_intent: SearchIntent
     clarifying_question: Optional[str] = None
     clarification_options: List[str] = []
